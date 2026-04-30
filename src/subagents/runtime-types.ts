@@ -9,6 +9,7 @@ export type ParentShutdownAction = "terminate" | "cancel" | "abandon";
 export interface SubagentParamsInput {
 	name: string;
 	task: string;
+	title: string;
 	agent: string;
 	systemPrompt?: string;
 	model?: string;
@@ -72,13 +73,14 @@ export interface RunningSubagent {
 	id: string;
 	name: string;
 	task: string;
+	title?: string;
 	agent?: string;
 	mode: "interactive" | "background";
 	executionState: "starting" | "running";
 	deliveryState: DeliveryState;
 	parentClosePolicy: ParentClosePolicy;
-	blocking: boolean;
-	async: boolean;
+	blocking?: boolean;
+	async?: boolean;
 	autoExit?: boolean;
 	noSession?: boolean;
 	resultOwner?: { kind: CompletedDelivery; ownerId: string };
@@ -110,6 +112,7 @@ export interface RunningSubagent {
 export interface StartedSubagentToolDetails {
 	id?: string;
 	name?: string;
+	title?: string;
 	status?: string;
 	error?: string;
 	deliveryState?: string;

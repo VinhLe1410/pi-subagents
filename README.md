@@ -272,7 +272,7 @@ These are the ones worth knowing.
 - `PI_CODING_AGENT_DIR` — override the global pi agent config root
 - `PI_SUBAGENT_DISABLE_AMBIENT_AWARENESS` — disable the hidden top-level subagent catalog
 - `PI_SUBAGENT_DISABLE_COORDINATOR_ONLY_TURN` — disable the scoped same-response guard after detached launches
-- `PI_SUBAGENT_DISABLE_SESSION_TITLES` — disable automatic child session titles such as `[scout agent] Explore auth flow`
+- `PI_SUBAGENT_DISABLE_SESSION_TITLES` — disable automatic child session titles such as `[scout agent] Auth flow reconnaissance`
 - `PI_ARTIFACT_PROJECT_ROOT` — override artifact root resolution
 - `PI_SUBAGENT_SHELL_READY_DELAY_MS` — override the interactive shell startup delay before sending a child command (default `500`)
 - `PI_SUBAGENT_ENABLE_SET_TAB_TITLE` — opt in to registering the `set_tab_title` tool
@@ -304,9 +304,9 @@ These are normally set by the extension itself, but they matter if you are readi
 
 The package adds two useful pieces of UI.
 
-The parent session gets a live subagent widget above the editor showing running children, elapsed time, activity, and basic context usage.
+The parent session gets a live subagent widget above the editor showing running children, elapsed time, activity, and basic context usage. Every `subagent` tool call requires a concise `title`; the widget shows that title instead of a raw task/prompt preview.
 
-Each child session also gets its own tools widget so you can see what is available and what is denied.
+Each child session also gets its own tools widget so you can see what is available and what is denied. Child session titles use `[<agent> agent] <title>`.
 
 That sounds minor until you start juggling several agents. Then it stops sounding minor.
 

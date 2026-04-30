@@ -215,7 +215,7 @@ export class SubagentWidgetManager {
 	}
 
 	private refreshRunningSubagentState(agent: RunningSubagent): void {
-		agent.taskPreview = firstNonEmptyLine(agent.task, 46);
+		agent.taskPreview = firstNonEmptyLine(agent.title ?? agent.task, 46);
 
 		try {
 			if (!existsSync(agent.sessionFile)) return;
@@ -366,13 +366,15 @@ export class SubagentWidgetManager {
 			const childConnector = isLast ? "   " : "│  ";
 			const stats: string[] = [];
 
-			if ((agent.toolUses ?? 0) > 0) {
-				stats.push(`${agent.toolUses} tool use${agent.toolUses === 1 ? "" : "s"}`);
+			const toolUses = agent.toolUses ?? 0;
+			if (toolUses > 0) {
+				stats.push(`${toolUses} tool use${toolUses === 1 ? "" : "s"}`);
 			}
 			if (agent.contextLabel) {
 				stats.push(agent.contextLabel);
-			} else if ((agent.totalTokens ?? 0) > 0) {
-				stats.push(`${formatCompactCount(agent.totalTokens)} tokens`);
+			} else {
+				const totalTokens = agent.totalTokens ?? 0;
+				if (totalTokens > 0) stats.push(`${formatCompactCount(totalTokens)} tokens`);
 			}
 
 			const header =
@@ -383,11 +385,12 @@ export class SubagentWidgetManager {
 					: "");
 			lines.push(truncateToWidth(header, width));
 
-			if (agent.taskPreview) {
+			const displayTitle = agent.taskPreview ?? firstNonEmptyLine(agent.title ?? agent.task, 46);
+			if (displayTitle) {
 				lines.push(
 					truncateToWidth(
 						theme.fg("dim", childConnector) +
-							theme.fg("muted", `  ${agent.taskPreview}`),
+							theme.fg("muted", `  ${displayTitle}`),
 						width,
 					),
 				);

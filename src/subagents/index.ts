@@ -65,6 +65,10 @@ import { SubagentWidgetManager } from "./widget.ts";
 const SubagentParams = Type.Object({
 	name: Type.String({ description: "Display name for the subagent" }),
 	task: Type.String({ description: "Task/prompt for the sub-agent" }),
+	title: Type.String({
+		description:
+			"Required human title for this child session/widget. The parent agent must write it from its delegation context: sentence case, 3-15 words, outcome/objective focused, and not a prompt or instruction.",
+	}),
 	agent: Type.String({
 		description:
 			"Required agent definition name. Reads .pi/agents/<name>.md or ~/.pi/agent/agents/<name>.md and refuses ad-hoc unnamed subagents.",
@@ -469,30 +473,91 @@ function areSubagentSessionTitlesDisabled(): boolean {
 }
 
 const MAX_SUBAGENT_SESSION_TITLE_DESCRIPTION = 72;
+const MAX_SUBAGENT_SESSION_TITLE_WORDS = 15;
+
+function sentenceCaseSubagentTitle(title: string): string {
+	const words = title.split(/\s+/).filter(Boolean);
+	const plainWords = words.filter((word) => /\p{L}/u.test(word));
+	if (plainWords.length < 2) return title;
+
+	const titleCaseWord = /^["'`([{]*\p{Lu}\p{Ll}+[\p{Ll}\p{N}'’-]*["'`\])},:;]*$/u;
+	const titleCasedWords = plainWords.filter((word) => titleCaseWord.test(word));
+	if (titleCasedWords.length / plainWords.length < 0.6) return title;
+
+	let keptFirst = false;
+	return title
+		.split(/(\s+)/)
+		.map((word) => {
+			if (!titleCaseWord.test(word)) return word;
+			if (!keptFirst) {
+				keptFirst = true;
+				return word;
+			}
+			return word.toLocaleLowerCase();
+		})
+		.join("");
+}
+
+function cleanSubagentSessionTitleDescription(raw: string): string {
+	let title = raw
+		.replace(/^['"`]+|['"`]+$/g, "")
+		.replace(/[\r\n]+/g, " ")
+		.replace(/\s+/g, " ")
+		.replace(/[\p{Cf}]/gu, "")
+		.trim();
+
+	title = title
+		.replace(/^(task|objective|goal|request|title)\s*:\s*/i, "")
+		.replace(/\b(?:reply|respond)\s+(?:with\s+)?(?:just\s+)?ok\b.*$/i, "")
+		.replace(/\s+/g, " ")
+		.replace(/[.!?]+$/g, "")
+		.trim();
+
+	title = sentenceCaseSubagentTitle(title).replace(/[.!?]+$/g, "").trim();
+	if (!title) return "";
+
+	const words = title.split(/\s+/).filter(Boolean);
+	if (words.length > MAX_SUBAGENT_SESSION_TITLE_WORDS) {
+		title = words.slice(0, MAX_SUBAGENT_SESSION_TITLE_WORDS).join(" ");
+	}
+	if (title.length > MAX_SUBAGENT_SESSION_TITLE_DESCRIPTION) {
+		title = title.slice(0, MAX_SUBAGENT_SESSION_TITLE_DESCRIPTION).trim();
+		const lastSpace = title.lastIndexOf(" ");
+		if (lastSpace > 18) title = title.slice(0, lastSpace).trim();
+	}
+	return title.replace(/[.!?]+$/g, "").trim();
+}
 
 function summarizeSubagentTaskForSessionTitle(task: string): string {
 	const firstMeaningfulLine = task
 		.split(/\r?\n/)
 		.map((line) => line.trim())
 		.find(Boolean) ?? "";
-	const withoutPrefix = firstMeaningfulLine.replace(/^(task|objective|goal|request)\s*:\s*/i, "");
-	const compact = withoutPrefix.replace(/\s+/g, " ").trim();
-	if (compact.length <= MAX_SUBAGENT_SESSION_TITLE_DESCRIPTION) return compact;
-	return `${compact.slice(0, MAX_SUBAGENT_SESSION_TITLE_DESCRIPTION - 1).trimEnd()}…`;
+	return cleanSubagentSessionTitleDescription(firstMeaningfulLine);
 }
 
-function buildSubagentSessionTitle(params: Pick<SubagentParamsInput, "agent" | "name" | "task">): string | undefined {
+function getSubagentDisplayTitle(params: Pick<SubagentParamsInput, "title" | "task">): string {
+	return cleanSubagentSessionTitleDescription(params.title ?? "") || summarizeSubagentTaskForSessionTitle(params.task);
+}
+
+type SubagentTitleParams = Pick<SubagentParamsInput, "name" | "task" | "title"> & { agent?: string };
+
+function buildSubagentSessionTitle(params: SubagentTitleParams): string | undefined {
 	if (areSubagentSessionTitlesDisabled()) return undefined;
 	const agentType = (params.agent ?? params.name).trim();
 	if (!agentType) return undefined;
-	const description = summarizeSubagentTaskForSessionTitle(params.task);
+	const description = getSubagentDisplayTitle(params);
 	return description
 		? `[${agentType} agent] ${description}`
 		: `[${agentType} agent]`;
 }
 
-export function buildSubagentSessionTitleForTest(params: Pick<SubagentParamsInput, "agent" | "name" | "task">) {
+export function buildSubagentSessionTitleForTest(params: SubagentTitleParams) {
 	return buildSubagentSessionTitle(params);
+}
+
+export function getSubagentDisplayTitleForTest(params: Pick<SubagentParamsInput, "title" | "task">) {
+	return getSubagentDisplayTitle(params);
 }
 
 export function getTerminalAssistantSummaryForTest(
@@ -1275,6 +1340,7 @@ function enforceAgentFrontmatter(
 	return {
 		name: params.name,
 		task: params.task,
+		title: params.title,
 		agent: params.agent,
 		fork: params.fork,
 		async: resolveSubagentAsync(params, agentDefs),
@@ -1398,6 +1464,7 @@ function getStartedSubagentDetails(running: RunningSubagent) {
 	return {
 		id: running.id,
 		name: running.name,
+		title: running.title,
 		task: running.task,
 		agent: running.agent,
 		sessionFile: running.noSession ? undefined : running.sessionFile,
@@ -2445,7 +2512,7 @@ function getBaseSubagentEnvVars(
  * Launch a background subagent as a headless `pi -p` child process.
  * No terminal pane or mux required.
  */
-function launchBackgroundSubagent(
+async function launchBackgroundSubagent(
 	params: SubagentParamsInput,
 	ctx: SubagentLaunchContext,
 ): Promise<RunningSubagent> {
@@ -2526,6 +2593,7 @@ function launchBackgroundSubagent(
 		id,
 		name: params.name,
 		task: params.task,
+		title: getSubagentDisplayTitle(params),
 		agent: params.agent,
 		mode: "background",
 		executionState: "running",
@@ -2819,6 +2887,7 @@ async function launchSubagent(
 		id,
 		name: params.name,
 		task: params.task,
+		title: getSubagentDisplayTitle(params),
 		agent: params.agent,
 		mode: "interactive",
 		executionState: "running",

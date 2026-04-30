@@ -54,6 +54,7 @@ import subagentDoneExtension, {
 import {
   buildPiPromptArgsForTest,
   buildSubagentSessionTitleForTest,
+  getSubagentDisplayTitleForTest,
   detachSubagentForTest,
   getAmbientCatalogEntriesForTest,
   getCompletedSubagentResultForTest,
@@ -2398,17 +2399,27 @@ describe("subagents/index.ts helpers", () => {
       buildSubagentSessionTitleForTest({
         name: "Auth Scout",
         agent: "scout",
+        title: "Auth flow reconnaissance",
         task: "Explore web app's auth\nReturn a concise report.",
       }),
-      "[scout agent] Explore web app's auth",
+      "[scout agent] Auth flow reconnaissance",
     );
 
     assert.equal(
       buildSubagentSessionTitleForTest({
         name: "Reviewer",
+        title: "Local diff bug review",
         task: "Objective: Review the local diff for high-confidence bugs and summarize findings in detail",
       }),
-      "[Reviewer agent] Review the local diff for high-confidence bugs and summarize findings i…",
+      "[Reviewer agent] Local diff bug review",
+    );
+
+    assert.equal(
+      getSubagentDisplayTitleForTest({
+        title: "Fix Login Button On Mobile!!!",
+        task: "Task: respond with ok",
+      }),
+      "Fix login button on mobile",
     );
   });
 

@@ -15,6 +15,7 @@ function createCompleted(id = "child-1"): CompletedSubagentResult {
     deliveryState: "detached",
     parentClosePolicy: "terminate",
     blocking: false,
+    async: true,
     deliveredTo: null,
     exitCode: 0,
     elapsed: 1,
@@ -40,6 +41,7 @@ describe("sync manager direct module tests", () => {
     assert.equal(sync.getCompletedResult(cached.id), cached);
 
     const result = await sync.waitForResult({ id: cached.id });
+    assert.ok(!("error" in result.details));
     assert.equal(result.details.id, cached.id);
     assert.equal(result.details.deliveryState, "awaited");
     assert.equal(cached.deliveredTo, "wait");
@@ -65,6 +67,7 @@ describe("sync manager direct module tests", () => {
     });
 
     const result = sync.detachResult({ id: cached.id }, { sendMessage() {} } as any);
+    assert.ok(!("error" in result.details));
     assert.equal(result.details.status, "detached");
     assert.equal(cached.deliveryState, "detached");
     assert.equal(delivered, true);

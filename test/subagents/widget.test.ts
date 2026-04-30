@@ -18,19 +18,20 @@ describe("widget manager direct module tests", () => {
       id: "child-1",
       name: "Research",
       agent: "researcher",
-      task: "Inspect the auth module for session handling",
+      task: "Inspect the auth module for session handling and return a concise report.",
+      title: "Auth session review",
       mode: "background",
       executionState: "running",
       deliveryState: "detached",
       parentClosePolicy: "terminate",
       blocking: false,
+      async: true,
       startTime: Date.now() - 1500,
       sessionFile: "/tmp/child-1.jsonl",
       messageCount: 3,
       toolUses: 1,
       pendingToolCount: 1,
       activity: "reading auth module",
-      taskPreview: "Inspect the auth module for session handling",
     };
 
     const widget = new SubagentWidgetManager(() => [running]);
@@ -40,7 +41,8 @@ describe("widget manager direct module tests", () => {
     assert.match(lines, /Research \[researcher\]/);
     assert.match(lines, /1 tool use/);
     assert.doesNotMatch(lines, /3 messages/);
-    assert.match(lines, /Inspect the auth module for session handling/);
+    assert.match(lines, /Auth session review/);
+    assert.doesNotMatch(lines, /return a concise report/);
     assert.match(lines, /reading auth module/);
     assert.doesNotMatch(lines, /\[detached\]/);
   });
@@ -72,6 +74,7 @@ describe("widget manager direct module tests", () => {
       deliveryState: "detached",
       parentClosePolicy: "terminate",
       blocking: false,
+      async: true,
       startTime: Date.now(),
       sessionFile,
       modelContextWindow: 100,
