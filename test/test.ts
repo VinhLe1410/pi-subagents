@@ -100,6 +100,7 @@ import {
 } from "../src/subagents/index.ts";
 import {
   getArtifactProjectName,
+  getArtifactStorageRoot,
   getProjectArtifactsDir,
   getSessionArtifactDir,
   resolveArtifactProjectRoot,
@@ -830,12 +831,12 @@ describe("shared/artifacts.ts", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("prefers PI_ARTIFACT_PROJECT_ROOT when set", () => {
+  it("uses PI_ARTIFACT_PROJECT_ROOT as the artifact storage root when set", () => {
     const explicitRoot = join(dir, "explicit-root");
     mkdirSync(explicitRoot, { recursive: true });
     process.env.PI_ARTIFACT_PROJECT_ROOT = explicitRoot;
 
-    assert.equal(resolveArtifactProjectRoot(join(dir, "nested")), explicitRoot);
+    assert.equal(getArtifactStorageRoot(), explicitRoot);
   });
 
   it("finds the nearest package root when no git root exists", () => {
@@ -872,13 +873,14 @@ describe("shared/artifacts.ts", () => {
     }
   });
 
-  it("builds project and session artifact paths from the resolved root", () => {
+  it("builds project and session artifact paths from the storage root and repo root", () => {
     const projectRoot = join(dir, "artifact-project");
     const nested = join(projectRoot, "src");
     mkdirSync(join(projectRoot, ".git"), { recursive: true });
     mkdirSync(nested, { recursive: true });
 
     assert.equal(getArtifactProjectName(nested), "artifact-project");
+    assert.equal(getArtifactStorageRoot(), join(homedir(), ".pi", "history"));
     assert.equal(
       getProjectArtifactsDir(nested),
       join(homedir(), ".pi", "history", "artifact-project", "artifacts"),
@@ -891,6 +893,19 @@ describe("shared/artifacts.ts", () => {
       resolveSessionArtifactPath(nested, "session-123", "context/notes.md"),
       join(homedir(), ".pi", "history", "artifact-project", "artifacts", "session-123", "context/notes.md"),
     );
+  });
+
+  it("keeps the repo-derived project name when PI_ARTIFACT_PROJECT_ROOT is set", () => {
+    const projectRoot = join(dir, "real-project");
+    const nested = join(projectRoot, "src");
+    const explicitRoot = join(dir, "custom-history-root");
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+    mkdirSync(nested, { recursive: true });
+    mkdirSync(explicitRoot, { recursive: true });
+    process.env.PI_ARTIFACT_PROJECT_ROOT = explicitRoot;
+
+    assert.equal(getArtifactProjectName(nested), "real-project");
+    assert.equal(getProjectArtifactsDir(nested), join(explicitRoot, "real-project", "artifacts"));
   });
 });
 

@@ -39,7 +39,11 @@ import {
 	getNewEntries,
 	findLastAssistantMessage,
 } from "./session.ts";
-import { getSessionArtifactDir, resolveArtifactProjectRoot } from "../shared/artifacts.ts";
+import {
+	getArtifactStorageRoot,
+	getSessionArtifactDir,
+	resolveArtifactProjectRoot,
+} from "../shared/artifacts.ts";
 import type {
 	CompletedSubagentResult,
 	DeliveryState,
@@ -2514,7 +2518,7 @@ function getBaseSubagentEnvVars(
 	if (sessionMode !== "standalone") envVars.PI_SUBAGENT_PARENT_SESSION = prepared.sessionFile;
 	const sessionTitle = buildSubagentSessionTitle(params);
 	if (sessionTitle) envVars.PI_SUBAGENT_SESSION_TITLE = sessionTitle;
-	envVars.PI_ARTIFACT_PROJECT_ROOT = resolveArtifactProjectRoot(ctx.cwd);
+	envVars.PI_ARTIFACT_PROJECT_ROOT = getArtifactStorageRoot();
 	return envVars;
 }
 
@@ -3971,7 +3975,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 				resumeEnvParts.push(`PI_SUBAGENT_SESSION=${shellEscape(sessionFile)}`);
 				resumeEnvParts.push("PI_SUBAGENT_AUTO_EXIT=1");
 				resumeEnvParts.push(
-					`PI_ARTIFACT_PROJECT_ROOT=${shellEscape(resolveArtifactProjectRoot(ctx.cwd))}`,
+					`PI_ARTIFACT_PROJECT_ROOT=${shellEscape(getArtifactStorageRoot())}`,
 				);
 				const resumeEnvPrefix = `${resumeEnvParts.join(" ")} `;
 				const command = `${resumeEnvPrefix}${parts.join(" ")}${cleanupMsgFile ? `; rm -f ${shellEscape(cleanupMsgFile)}` : ""}; echo '__SUBAGENT_DONE_'${exitStatusVar()}'__'`;

@@ -240,6 +240,8 @@ A child can stop, send a message upward, and hand back a resumable session file.
 ## Session artifacts
 
 Subagents can write artifacts into a session-scoped store under pi history.
+Set `PI_ARTIFACT_PROJECT_ROOT` to move that history root somewhere else.
+Artifacts then live at `<root>/<project>/artifacts/<session-id>/...`.
 
 This is the clean handoff layer for:
 
@@ -273,7 +275,7 @@ These are the ones worth knowing.
 - `PI_SUBAGENT_DISABLE_AMBIENT_AWARENESS` — disable the hidden top-level subagent catalog
 - `PI_SUBAGENT_DISABLE_COORDINATOR_ONLY_TURN` — disable the scoped same-response guard after detached launches
 - `PI_SUBAGENT_DISABLE_SESSION_TITLES` — disable automatic child session titles such as `[scout agent] Auth flow reconnaissance`
-- `PI_ARTIFACT_PROJECT_ROOT` — override artifact root resolution
+- `PI_ARTIFACT_PROJECT_ROOT` — override the artifact history root; layout stays `<root>/<project>/artifacts/<session-id>/...`
 - `PI_SUBAGENT_SHELL_READY_DELAY_MS` — override the interactive shell startup delay before sending a child command (default `500`)
 - `PI_SUBAGENT_ENABLE_SET_TAB_TITLE` — opt in to registering the `set_tab_title` tool
 - `PI_SUBAGENT_RENAME_TMUX_WINDOW` — opt in to tmux window renaming

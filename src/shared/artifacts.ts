@@ -3,9 +3,6 @@ import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
 export function resolveArtifactProjectRoot(cwd: string): string {
-  const envRoot = process.env.PI_ARTIFACT_PROJECT_ROOT?.trim();
-  if (envRoot) return resolve(envRoot);
-
   let dir = resolve(cwd);
   let packageRoot: string | null = null;
 
@@ -25,12 +22,17 @@ export function resolveArtifactProjectRoot(cwd: string): string {
   }
 }
 
+export function getArtifactStorageRoot(): string {
+  const envRoot = process.env.PI_ARTIFACT_PROJECT_ROOT?.trim();
+  return envRoot ? resolve(envRoot) : join(homedir(), ".pi", "history");
+}
+
 export function getArtifactProjectName(cwd: string): string {
   return basename(resolveArtifactProjectRoot(cwd));
 }
 
 export function getProjectArtifactsDir(cwd: string): string {
-  return join(homedir(), ".pi", "history", getArtifactProjectName(cwd), "artifacts");
+  return join(getArtifactStorageRoot(), getArtifactProjectName(cwd), "artifacts");
 }
 
 export function getSessionArtifactDir(cwd: string, sessionId: string): string {

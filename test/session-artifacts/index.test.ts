@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 
 import sessionArtifactsExtension from "../../src/session-artifacts/index.ts";
@@ -117,6 +117,49 @@ describe("session-artifacts direct module tests", () => {
     } finally {
       rmSync(projectRoot, { recursive: true, force: true });
       rmSync(projectArtifactsDir, { recursive: true, force: true });
+    }
+  });
+
+  it("writes under the configured artifact storage root without changing the project name", async () => {
+    const storageRoot = mkdtempSync(join(tmpdir(), "pi-subagents-artifact-root-"));
+    const projectRoot = mkdtempSync(join(tmpdir(), "pi-subagents-project-"));
+    const cwd = join(projectRoot, "src");
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+    mkdirSync(cwd, { recursive: true });
+
+    const sessionId = `session-${Date.now()}`;
+    const projectArtifactsDir = join(storageRoot, basename(projectRoot), "artifacts");
+
+    try {
+      await withEnv(
+        {
+          PI_ARTIFACT_PROJECT_ROOT: storageRoot,
+          PI_SUBAGENT_NAME: "Child Writer",
+          PI_SUBAGENT_AGENT: "artifact-writer",
+          PI_DENY_TOOLS: undefined,
+        },
+        async () => {
+          const tools = registerTools();
+          const writeArtifact = tools.get("write_artifact");
+          assert.ok(writeArtifact);
+
+          await writeArtifact.execute(
+            "tool-3",
+            { name: "notes/custom-root.md", content: "custom root coverage" },
+            undefined,
+            undefined,
+            { cwd, sessionManager: { getSessionId: () => sessionId } },
+          );
+        },
+      );
+
+      assert.equal(
+        readFileSync(join(projectArtifactsDir, sessionId, "notes", "custom-root.md"), "utf8"),
+        "custom root coverage",
+      );
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+      rmSync(storageRoot, { recursive: true, force: true });
     }
   });
 });
