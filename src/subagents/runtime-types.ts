@@ -93,6 +93,7 @@ export interface RunningSubagent {
 	sessionFile: string;
 	entries?: number;
 	bytes?: number;
+	launchEntryCount?: number;
 	messageCount?: number;
 	toolUses?: number;
 	totalTokens?: number;

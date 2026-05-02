@@ -97,6 +97,7 @@ import {
   waitForSubagentForTest,
   writeSystemPromptArtifactForTest,
   getTerminalAssistantSummaryForTest,
+  getTerminalAssistantSummaryAfterLaunchForTest,
   shouldReapStableTerminalSummaryForTest,
 } from "../src/subagents/index.ts";
 import {
@@ -2459,6 +2460,42 @@ describe("subagents/index.ts helpers", () => {
     assert.equal(existsSync(child), false);
   });
 
+  it("does not treat fork seed assistant messages as child completion output", () => {
+    const oldSummary = "old Discord announcement";
+    const newSummary = "new research answer";
+    const seededEntries = [
+      { type: "session" },
+      {
+        type: "message",
+        message: {
+          role: "assistant",
+          stopReason: "stop",
+          content: [{ type: "text", text: oldSummary }],
+        },
+      },
+      {
+        type: "message",
+        message: {
+          role: "user",
+          content: [{ type: "text", text: "actual delegated child task" }],
+        },
+      },
+      {
+        type: "message",
+        message: {
+          role: "assistant",
+          stopReason: "stop",
+          content: [{ type: "text", text: newSummary }],
+        },
+      },
+    ] as any[];
+
+    assert.equal(getTerminalAssistantSummaryAfterLaunchForTest(seededEntries, 2), newSummary);
+    assert.equal(findLastAssistantMessage(seededEntries.slice(2)), newSummary);
+    assert.equal(getTerminalAssistantSummaryAfterLaunchForTest(seededEntries, seededEntries.length), null);
+    assert.equal(getTerminalAssistantSummaryForTest(seededEntries.slice(0, 2)), oldSummary);
+  });
+
   it("creates forked child session files directly", () => {
     const dir = createTestDir();
     const parent = join(dir, "parent.jsonl");
@@ -2619,6 +2656,8 @@ describe("subagents/index.ts helpers", () => {
     assert.equal(launched.details.status, "completed");
     assert.equal(launched.details.deliveryState, "awaited");
     assert.equal(launched.details.blocking, true);
+    assert.equal(launched.details.summary, "Blocking completion summary");
+    assert.match(launched.content[0].text, /Blocking completion summary/);
     assert.equal(sent.length, 0);
     assert.equal(getCompletedSubagentResultForTest(running.id)?.deliveredTo, "wait");
   });

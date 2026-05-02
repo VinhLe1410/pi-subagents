@@ -564,7 +564,7 @@ export function getSubagentDisplayTitleForTest(params: Pick<SubagentParamsInput,
 	return getSubagentDisplayTitle(params);
 }
 
-export function getTerminalAssistantSummaryForTest(
+function getTerminalAssistantSummary(
 	entries: SessionEntryLike[],
 ): string | null {
 	for (let i = entries.length - 1; i >= 0; i--) {
@@ -584,6 +584,19 @@ export function getTerminalAssistantSummaryForTest(
 		return texts.length > 0 ? texts.join("\n") : null;
 	}
 	return null;
+}
+
+export function getTerminalAssistantSummaryForTest(
+	entries: SessionEntryLike[],
+): string | null {
+	return getTerminalAssistantSummary(entries);
+}
+
+export function getTerminalAssistantSummaryAfterLaunchForTest(
+	entries: SessionEntryLike[],
+	launchEntryCount: number,
+): string | null {
+	return getTerminalAssistantSummary(entries.slice(launchEntryCount));
 }
 
 function shouldReapStableTerminalSummary(
@@ -1702,11 +1715,14 @@ function getSubagentWaitSuccessResult(cached: CompletedSubagentResult) {
 		cached.status === "completed"
 			? `exit code ${cached.exitCode}`
 			: `status ${cached.status}`;
+	const sessionRef = cached.sessionFile
+		? `\n\nSession: ${cached.sessionFile}\nResume: pi --session ${cached.sessionFile}`
+		: "";
 	return {
 		content: [
 			{
 				type: "text",
-				text: `Sub-agent "${cached.name}" ${verb} (${exitText}).`,
+				text: `Sub-agent "${cached.name}" ${verb} (${exitText}).\n\n${cached.summary}${sessionRef}`,
 			},
 		],
 		details: {
@@ -1721,6 +1737,7 @@ function getSubagentWaitSuccessResult(cached: CompletedSubagentResult) {
 			exitCode: cached.exitCode,
 			elapsed: cached.elapsed,
 			outputTokens: cached.outputTokens,
+			summary: cached.summary,
 			sessionFile: cached.sessionFile,
 		},
 	};
@@ -2599,6 +2616,9 @@ async function launchBackgroundSubagent(
 	const envVars = getBaseSubagentEnvVars(prepared, params);
 	if (prepared.agentDefs?.autoExit) envVars.PI_SUBAGENT_AUTO_EXIT = "1";
 	envVars.PI_SUBAGENT_SESSION = prepared.subagentSessionFile;
+	const launchEntryCount = existsSync(prepared.subagentSessionFile)
+		? getEntryCount(prepared.subagentSessionFile)
+		: 0;
 
 	const invocation = getPiInvocation(args);
 	const child = spawn(invocation.command, invocation.args, {
@@ -2626,6 +2646,7 @@ async function launchBackgroundSubagent(
 		childProcess: child,
 		startTime,
 		sessionFile: prepared.subagentSessionFile,
+		launchEntryCount,
 		modelContextWindow: resolveModelContextWindow(prepared.effectiveModelRef),
 	};
 	const rememberTail = (current: string | undefined, chunk: Buffer | string) =>
@@ -2695,8 +2716,8 @@ function watchBackgroundSubagent(
 				running.bytes = stat.size;
 				if (running.noSession) return;
 				if (!shouldReapStableTerminalSummary(running)) return;
-				const summary = getTerminalAssistantSummaryForTest(
-					getEntries(running.sessionFile) as SessionEntryLike[],
+				const summary = getTerminalAssistantSummary(
+					(getEntries(running.sessionFile) as SessionEntryLike[]).slice(running.launchEntryCount ?? 0),
 				);
 				if (!summary) {
 					terminalSummary = null;
@@ -2737,7 +2758,7 @@ function watchBackgroundSubagent(
 			const exitCode = exitSignal?.exitCode ?? code ?? 1;
 			let summary = `Background agent exited with code ${exitCode}`;
 			if (!running.noSession && existsSync(running.sessionFile)) {
-				const allEntries = getNewEntries(running.sessionFile, 0);
+				const allEntries = getNewEntries(running.sessionFile, running.launchEntryCount ?? 0);
 				summary =
 					findLastAssistantMessage(allEntries) ??
 					(exitCode !== 0
@@ -2884,6 +2905,9 @@ async function launchSubagent(
 		? `cd ${shellEscape(prepared.runtimePaths.effectiveCwd)} && `
 		: "";
 
+	const launchEntryCount = existsSync(prepared.subagentSessionFile)
+		? getEntryCount(prepared.subagentSessionFile)
+		: 0;
 	const piCommand = cdPrefix + envPrefix + parts.join(" ");
 	const command = `${piCommand}; printf '__SUBAGENT_DONE_'${exitStatusVar()}'__\\n' | tee ${shellEscape(doneSentinelFile)}`;
 	sendShellCommand(surface, command);
@@ -2921,6 +2945,7 @@ async function launchSubagent(
 		surface,
 		startTime,
 		sessionFile: prepared.subagentSessionFile,
+		launchEntryCount,
 		modelContextWindow: resolveModelContextWindow(prepared.effectiveModelRef),
 		doneSentinelFile,
 	};
@@ -2970,7 +2995,7 @@ async function watchSubagent(
 		// Extract summary from the known session file when it is a persisted child transcript.
 		let summary: string;
 		if (!running.noSession && existsSync(sessionFile)) {
-			const allEntries = getNewEntries(sessionFile, 0);
+			const allEntries = getNewEntries(sessionFile, running.launchEntryCount ?? 0);
 			summary =
 				findLastAssistantMessage(allEntries) ??
 				(pollResult.exitCode !== 0
