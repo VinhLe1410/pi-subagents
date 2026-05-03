@@ -250,8 +250,6 @@ const BUILTIN_TOOL_NAMES = new Set(["read", "bash", "edit", "write", "grep", "fi
 const SUBAGENT_PROTOCOL_TOOLS = [
 	"caller_ping",
 	"subagent_done",
-	"write_artifact",
-	"read_artifact",
 	"set_tab_title",
 ];
 
@@ -637,7 +635,7 @@ function muxUnavailableResult(kind: "subagents" | "tab-title" = "subagents") {
 
 /**
  * Build the artifact directory path for the current session.
- * Same convention as the write_artifact tool:
+ * Used internally for task delivery, activity files, and launch scripts:
  *   ~/.pi/history/<project>/artifacts/<session-id>/
  */
 function getArtifactDir(cwd: string, sessionId: string): string {

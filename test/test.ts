@@ -110,8 +110,6 @@ import {
   resolveArtifactProjectRoot,
   resolveSessionArtifactPath,
 } from "../src/shared/artifacts.ts";
-import sessionArtifactsExtension from "../src/session-artifacts/index.ts";
-
 // --- Helpers ---
 
 function createTestDir(): string {
@@ -591,8 +589,8 @@ describe("subagent-done.ts", () => {
 
     it("filters denied tool names and de-duplicates survivors", () => {
       assert.deepEqual(
-        filterToolNames(["read", "ask_user_question", "read", "write_artifact"], ["ask_user_question"]),
-        ["read", "write_artifact"],
+        filterToolNames(["read", "ask_user_question", "read", "bash"], ["ask_user_question"]),
+        ["read", "bash"],
       );
     });
 
@@ -601,18 +599,15 @@ describe("subagent-done.ts", () => {
         "bash",
         "caller_ping",
         "subagent_done",
-        "write_artifact",
-        "read_artifact",
         "set_tab_title",
       ]);
     });
 
     it("removes denied subagent protocol tools from the launch allowlist", () => {
-      assert.deepEqual(getSubagentToolAllowlistForTest("bash,read", ["write_artifact", "caller_ping"]), [
+      assert.deepEqual(getSubagentToolAllowlistForTest("bash,read", ["caller_ping"]), [
         "bash",
         "read",
         "subagent_done",
-        "read_artifact",
         "set_tab_title",
       ]);
     });
@@ -644,9 +639,9 @@ describe("subagent-done.ts", () => {
     });
 
     it("maps narrowed built-in tools to a tool allowlist with protocol tools", () => {
-      assert.deepEqual(getSubagentToolLaunchArgsForTest("bash", ["write_artifact"]), [
+      assert.deepEqual(getSubagentToolLaunchArgsForTest("bash", []), [
         "--tools",
-        "bash,caller_ping,subagent_done,read_artifact,set_tab_title",
+        "bash,caller_ping,subagent_done,set_tab_title",
       ]);
     });
 
@@ -693,7 +688,7 @@ describe("subagent-done.ts", () => {
       } as any;
 
       const original = process.env.PI_DENY_TOOLS;
-      process.env.PI_DENY_TOOLS = "ask_user_question,write_artifact";
+      process.env.PI_DENY_TOOLS = "ask_user_question";
       try {
         const { applyDeniedTools } = installDeniedToolGuards(pi, false, (active, denied) => {
           changes.push({ active: [...active], denied: [...denied] });
@@ -702,12 +697,11 @@ describe("subagent-done.ts", () => {
         assert.deepEqual(applyDeniedTools(), ["read", "bash"]);
         assert.deepEqual(activeTools, ["read", "bash"]);
 
-        pi.registerTool({ name: "write_artifact" });
         assert.deepEqual(activeTools, ["read", "bash"]);
 
-        pi.setActiveTools(["read", "ask_user_question", "write_artifact", "bash"]);
+        pi.setActiveTools(["read", "ask_user_question", "bash"]);
         assert.deepEqual(activeTools, ["read", "bash"]);
-        assert.equal(changes.at(-1)?.denied.join(","), "ask_user_question,write_artifact");
+        assert.equal(changes.at(-1)?.denied.join(","), "ask_user_question");
       } finally {
         if (original == null) delete process.env.PI_DENY_TOOLS;
         else process.env.PI_DENY_TOOLS = original;
@@ -911,120 +905,6 @@ describe("shared/artifacts.ts", () => {
 
     assert.equal(getArtifactProjectName(nested), "real-project");
     assert.equal(getProjectArtifactsDir(nested), join(explicitRoot, "real-project", "artifacts"));
-  });
-});
-
-describe("session-artifacts/index.ts", () => {
-  it("hides write_artifact in root sessions and keeps it for spawned subagents", async () => {
-    const projectRoot = createTestDir();
-    const cwd = join(projectRoot, "src");
-    mkdirSync(join(projectRoot, ".git"), { recursive: true });
-    mkdirSync(cwd, { recursive: true });
-
-    const registerTools = () => {
-      const tools = new Map<string, any>();
-      sessionArtifactsExtension({
-        registerTool(definition: { name: string }) {
-          tools.set(definition.name, definition);
-        },
-      } as any);
-      return tools;
-    };
-
-    const originalName = process.env.PI_SUBAGENT_NAME;
-    const originalAgent = process.env.PI_SUBAGENT_AGENT;
-    const originalDenied = process.env.PI_DENY_TOOLS;
-    const projectArtifactsDir = getProjectArtifactsDir(cwd);
-    const sessionId = `session-${Date.now()}`;
-    const nextSessionId = `${sessionId}-next`;
-
-    try {
-      delete process.env.PI_SUBAGENT_NAME;
-      delete process.env.PI_SUBAGENT_AGENT;
-      delete process.env.PI_DENY_TOOLS;
-
-      const rootTools = registerTools();
-      assert.equal(rootTools.has("write_artifact"), false);
-      const rootReadArtifact = rootTools.get("read_artifact");
-      assert.ok(rootReadArtifact);
-
-      process.env.PI_SUBAGENT_NAME = "Artifact Child";
-      process.env.PI_SUBAGENT_AGENT = "artifact-child";
-
-      const childTools = registerTools();
-      const writeArtifact = childTools.get("write_artifact");
-      const readArtifact = childTools.get("read_artifact");
-      assert.ok(writeArtifact);
-      assert.ok(readArtifact);
-
-      const writeResult = await writeArtifact.execute(
-        "tool-1",
-        { name: "context/note.md", content: "artifact body" },
-        undefined,
-        undefined,
-        {
-          cwd,
-          sessionManager: { getSessionId: () => sessionId },
-        },
-      );
-      assert.equal(writeResult.details.sessionId, sessionId);
-      assert.equal(
-        readFileSync(join(getSessionArtifactDir(cwd, sessionId), "context", "note.md"), "utf8"),
-        "artifact body",
-      );
-
-      delete process.env.PI_SUBAGENT_NAME;
-      delete process.env.PI_SUBAGENT_AGENT;
-
-      const sameSessionRead = await rootReadArtifact.execute(
-        "tool-2",
-        { name: "context/note.md" },
-        undefined,
-        undefined,
-        {
-          cwd,
-          sessionManager: { getSessionId: () => sessionId },
-        },
-      );
-      assert.equal(sameSessionRead.details.sessionId, sessionId);
-      assert.equal(sameSessionRead.details.content, "artifact body");
-
-      const crossSessionRead = await rootReadArtifact.execute(
-        "tool-3",
-        { name: "context/note.md" },
-        undefined,
-        undefined,
-        {
-          cwd,
-          sessionManager: { getSessionId: () => nextSessionId },
-        },
-      );
-      assert.equal(crossSessionRead.details.content, "artifact body");
-      assert.equal(crossSessionRead.details.sessionId, nextSessionId);
-
-      const missing = await rootReadArtifact.execute(
-        "tool-4",
-        { name: "missing.md" },
-        undefined,
-        undefined,
-        {
-          cwd,
-          sessionManager: { getSessionId: () => nextSessionId },
-        },
-      );
-      assert.equal(missing.isError, true);
-      assert.match(missing.content[0].text, /Available artifacts:/);
-      assert.match(missing.content[0].text, /context\/note\.md/);
-    } finally {
-      if (originalName == null) delete process.env.PI_SUBAGENT_NAME;
-      else process.env.PI_SUBAGENT_NAME = originalName;
-      if (originalAgent == null) delete process.env.PI_SUBAGENT_AGENT;
-      else process.env.PI_SUBAGENT_AGENT = originalAgent;
-      if (originalDenied == null) delete process.env.PI_DENY_TOOLS;
-      else process.env.PI_DENY_TOOLS = originalDenied;
-      rmSync(projectRoot, { recursive: true, force: true });
-      rmSync(projectArtifactsDir, { recursive: true, force: true });
-    }
   });
 });
 

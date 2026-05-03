@@ -263,6 +263,22 @@ Spawned subagents get both `write_artifact` and `read_artifact`.
 
 The point is simple: if a child produces something structured, it should have a place to put it that is not random repo clutter.
 
+## Session artifacts
+
+Subagents can write artifacts into a session-scoped store under pi history.
+Set `PI_ARTIFACT_PROJECT_ROOT` to move that history root somewhere else.
+Artifacts then live at `<root>/<project>/artifacts/<session-id>/...`.
+
+This is the clean handoff layer for:
+
+- scouting reports
+- review notes
+- research
+- intermediate context
+- resumable work products
+
+The recommended pattern is for child agents to put their findings directly in their final assistant message. The extension forwards that message to the parent via steer — no file writes needed. For very large outputs, child agents can use pi's built-in `write` tool with an explicit path and report the path in their closing message. Agent bodies own the convention, not spawn calls.
+
 ## Ambient awareness
 
 Top-level sessions can receive a hidden catalog of available named subagents built from agent descriptions.

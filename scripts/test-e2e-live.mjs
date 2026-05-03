@@ -49,9 +49,10 @@ for (const name of ["auth.json", "settings.json", "models.json", "mcp.json"]) {
   const source = join(sourceConfigDir, name);
   if (existsSync(source)) copyFileSync(source, join(configDir, name));
 }
+// Child agent: output goes in the final assistant message, not written to a file
 writeFileSync(
   join(configDir, "agents", "live-e2e-wait.md"),
-  `---\nname: live-e2e-wait\ndescription: Live Ghostty+tmux wait smoke test agent.\nmodel: ${liveAgentModel}\nthinking: high\nauto-exit: true\nmode: interactive\nblocking: false\nspawning: false\ntools: bash\n---\n\nFirst run a bash command exactly \`sleep 90\` with timeout at least 120 seconds.\nThen use write_artifact with name \`live-e2e/child.md\` and content \`LIVE_CHILD_ARTIFACT\`.\nThen reply with exactly \`LIVE_CHILD_OK\`.`,
+  `---\nname: live-e2e-wait\ndescription: Live Ghostty+tmux wait smoke test agent.\nmodel: ${liveAgentModel}\nthinking: high\nauto-exit: true\nmode: interactive\nblocking: false\nspawning: false\ntools: bash\n---\n\nFirst run a bash command exactly \`sleep 90\` with timeout at least 120 seconds.\nThen in your final assistant message, include the exact text \`LIVE_CHILD_ARTIFACT\` and nothing else beyond it.\nThen reply with exactly \`LIVE_CHILD_OK\`.`,
   "utf8",
 );
 
@@ -169,7 +170,7 @@ const piCommand = [
 
 const launchCommand = [
   `cd ${shellQuote(repoRoot)}`,
-  `exec tmux -S ${shellQuote(tmuxSocket)} -f ${shellQuote(tmuxConfig)} new-session -A -s ${shellQuote(tmuxSession)} ${shellQuote(`cd ${repoRoot} && env -u PI_SUBAGENT_AGENT -u PI_SUBAGENT_NAME -u PI_SUBAGENT_AUTO_EXIT -u PI_DENY_TOOLS -u PI_ARTIFACT_PROJECT_ROOT PI_SUBAGENT_MUX=tmux ${piCommand}`)}`,
+  `exec tmux -S ${shellQuote(tmuxSocket)} -f ${shellQuote(tmuxConfig)} new-session -A -s ${shellQuote(tmuxSession)} ${shellQuote(`cd ${repoRoot} && env -u PI_SUBAGENT_AGENT -u PI_SUBAGENT_NAME -u PI_SUBAGENT_AUTO_EXIT -u PI_DENY_TOOLS PI_SUBAGENT_MUX=tmux ${piCommand}`)}`,
 ].join(" && ");
 
 const ghostty = spawn("ghostty", ["-e", "bash", "-lc", launchCommand], {
@@ -178,7 +179,7 @@ const ghostty = spawn("ghostty", ["-e", "bash", "-lc", launchCommand], {
   env: (() => {
     const env = { ...process.env };
     for (const key of Object.keys(env)) {
-      if (key.startsWith("PI_SUBAGENT_") || key === "PI_DENY_TOOLS" || key === "PI_ARTIFACT_PROJECT_ROOT") {
+      if (key.startsWith("PI_SUBAGENT_") || key === "PI_DENY_TOOLS") {
         delete env[key];
       }
     }
@@ -231,8 +232,7 @@ try {
     if (!stageTwoSent) {
       const stageTwoPrompt = [
         `Call subagent_wait with id \"${started.id}\" and timeout 120.`,
-        'Then call read_artifact with name "live-e2e/child.md".',
-        'After both tools return, reply with exactly "LIVE_E2E_PARENT_OK" and nothing else.',
+        'After the tool returns, reply with exactly "LIVE_E2E_PARENT_OK" and nothing else.',
         'Do not call any other tools.',
       ].join(" ");
       execTmux(["send-keys", "-t", `${tmuxSession}:0.0`, "-l", stageTwoPrompt]);
@@ -243,8 +243,7 @@ try {
     }
 
     const waitResult = getToolResult(parent.events, "subagent_wait");
-    const readArtifactResult = getToolResult(parent.events, "read_artifact");
-    if (!waitResult || !readArtifactResult || !assistantTexts.includes("LIVE_E2E_PARENT_OK")) {
+    if (!waitResult || !assistantTexts.includes("LIVE_E2E_PARENT_OK")) {
       await sleep(500);
       continue;
     }
@@ -258,16 +257,14 @@ try {
     if (waited.deliveryState !== "awaited") throw new Error(`Expected awaited wait deliveryState, got ${waited.deliveryState ?? "missing"}.`);
     if (!waited.sessionFile || !existsSync(waited.sessionFile)) throw new Error("subagent_wait did not return an existing sessionFile.");
 
+    // Verify child output via its last assistant message — no write_artifact needed
     const childEvents = parseJsonl(waited.sessionFile);
-    if (!getAssistantTexts(childEvents).some((text) => text.includes("LIVE_CHILD_OK"))) {
+    const childTexts = getAssistantTexts(childEvents);
+    if (!childTexts.some((text) => text.includes("LIVE_CHILD_OK"))) {
       throw new Error("Child did not produce LIVE_CHILD_OK.");
     }
-    const childWrite = getToolResult(childEvents, "write_artifact");
-    if (!childWrite) {
-      throw new Error("Child did not call write_artifact.");
-    }
-    if (readArtifactResult.content?.[0]?.text?.trim() !== "LIVE_CHILD_ARTIFACT") {
-      throw new Error("Parent did not read the child artifact content.");
+    if (!childTexts.some((text) => text.includes("LIVE_CHILD_ARTIFACT"))) {
+      throw new Error("Child did not include LIVE_CHILD_ARTIFACT in its last assistant message.");
     }
     if (!sawMultiplePanes) {
       throw new Error("Did not observe a second tmux pane while the interactive child was running.");
