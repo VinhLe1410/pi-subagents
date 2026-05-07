@@ -1364,6 +1364,8 @@ function resolveSubagentExtensionSource(source: string, baseDir: string): string
 
 function resolveSubagentExtensions(agentDefs: AgentDefaults | null): string[] | undefined {
 	if (!agentDefs?.extensions) return undefined;
+	const raw = agentDefs.extensions.trim().toLowerCase();
+	if (raw === "none" || raw === "false" || raw === "off" || raw === "[]") return [];
 	const baseDir = agentDefs.cwdBase ?? process.cwd();
 	const resolved = agentDefs.extensions
 		.split(",")

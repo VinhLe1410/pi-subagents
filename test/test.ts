@@ -1215,6 +1215,26 @@ describe("subagents/index.ts helpers", () => {
     );
   });
 
+  it("allows extensions none to launch child with only mandatory internal extension", () => {
+    const dir = createTestDir();
+    const configDir = join(dir, "agent-root");
+    const agentsDir = join(configDir, "agents");
+    mkdirSync(agentsDir, { recursive: true });
+    writeFileSync(
+      join(agentsDir, "tester.md"),
+      `---\nname: tester\nextensions: none\nskills: research, exa\n---\n\nYou are the tester.`,
+    );
+    process.env.PI_CODING_AGENT_DIR = configDir;
+
+    const defs = loadAgentDefaults("tester");
+    assert.equal(defs?.extensions, "none");
+    assert.deepEqual(resolveSubagentExtensionsForTest(defs), []);
+    assert.deepEqual(
+      getExtensionLaunchArgsForTest(resolveSubagentExtensionsForTest(defs), "/tmp/subagent-done.ts"),
+      ["--no-extensions", "-e", "/tmp/subagent-done.ts"],
+    );
+  });
+
   it("reads skills from skills frontmatter only", () => {
     const dir = createTestDir();
     const configDir = join(dir, "agent-root");
