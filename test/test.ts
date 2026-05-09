@@ -58,7 +58,6 @@ import {
   buildPiPromptArgsForTest,
   buildSubagentSessionTitleForTest,
   getSubagentDisplayTitleForTest,
-  detachSubagentForTest,
   getAmbientCatalogEntriesForTest,
   getCompletedSubagentResultForTest,
   getEffectiveAgentDefinitionsForTest,
@@ -1301,7 +1300,7 @@ describe("subagents/index.ts helpers", () => {
             agent: "bg-mode",
             mode: "background",
             sessionFile: child,
-            parentClosePolicy: "abandon",
+            parentClosePolicy: "continue",
             autoExit: true,
           },
         }),
@@ -1318,7 +1317,7 @@ describe("subagents/index.ts helpers", () => {
       agent: "bg-mode",
       name: "Worker",
       autoExit: true,
-      parentClosePolicy: "abandon",
+      parentClosePolicy: "continue",
       blocking: undefined,
       async: undefined,
     });
@@ -1349,7 +1348,7 @@ describe("subagents/index.ts helpers", () => {
       mode: "background",
       sessionMode: "fork",
       autoExit: true,
-      parentClosePolicy: "abandon",
+      parentClosePolicy: "continue",
       blocking: false,
       async: true,
       denyTools: [],
@@ -1366,7 +1365,7 @@ describe("subagents/index.ts helpers", () => {
       agent: undefined,
       name: "direct-child",
       autoExit: true,
-      parentClosePolicy: "abandon",
+      parentClosePolicy: "continue",
       blocking: false,
       async: true,
     });
@@ -1381,7 +1380,7 @@ describe("subagents/index.ts helpers", () => {
       name: "standalone-child",
       mode: "background",
       sessionMode: "standalone",
-      parentClosePolicy: "abandon",
+      parentClosePolicy: "continue",
       blocking: false,
       async: true,
       modelRef: "nahcrof/kimi-k2.6-precision",
@@ -1767,7 +1766,7 @@ describe("subagents/index.ts helpers", () => {
     assert.match(tool.promptSnippet, /Delegation ownership rule/);
     assert.match(tool.promptSnippet, /explicitly non-overlapping parent-owned work/);
     assert.match(tool.promptSnippet, /end the response and let async results arrive by steer/);
-    assert.match(tool.promptSnippet, /subagent_wait\/subagent_join only for explicit sync gates or short non-blocking status probes/);
+    assert.match(tool.promptSnippet, /subagent_join only for explicit sync gates or short non-blocking status probes/);
     assert.match(tool.promptSnippet, /Async launches request a graceful stop after the current tool batch/);
     assert.match(tool.promptSnippet, /PI_SUBAGENT_DISABLE_COORDINATOR_ONLY_TURN=1 disables only that runtime stop/);
     assert.doesNotMatch(tool.promptSnippet, /Coordinator-only turn stop is disabled/);
@@ -2753,7 +2752,7 @@ describe("subagents/index.ts helpers", () => {
 
     const launched = await getLaunchedSubagentResultForTest(running) as any;
     assert.match(launched.content[0].text, /child-123/);
-    assert.match(launched.content[0].text, /subagent_wait\/subagent_join/);
+    assert.match(launched.content[0].text, /subagent_join/);
 
     const started = getStartedSubagentDetailsForTest(running);
     assert.equal(started.status, "started");
@@ -3443,115 +3442,6 @@ describe("subagents/index.ts helpers", () => {
     assert.equal(getCompletedSubagentResultForTest(second.id)?.deliveredTo, "steer");
   });
 
-  it("detaches an owned child back to detached async delivery", async () => {
-    const sent: Array<{ message: any; options: any }> = [];
-    let resolveCompletion!: (result: any) => void;
-    const completionPromise = new Promise<any>((resolve) => {
-      resolveCompletion = resolve;
-    });
-    const running = {
-      id: "child-detach-1",
-      name: "Detached again child",
-      task: "Release ownership",
-      mode: "background" as const,
-      executionState: "running" as const,
-      deliveryState: "awaited" as const,
-      parentClosePolicy: "terminate" as const,
-      resultOwner: { kind: "wait" as const, ownerId: "wait:test" },
-      startTime: Date.now(),
-      sessionFile: "/tmp/child-detach-1.jsonl",
-      completionPromise,
-    };
-
-    setRunningSubagentForTest(running);
-    completionPromise.then((result) => {
-      routeDetachedSubagentCompletionForTest(
-        {
-          sendMessage(message: any, options: any) {
-            sent.push({ message, options });
-          },
-        },
-        running,
-        result,
-      );
-    });
-
-    const detached = detachSubagentForTest({ id: running.id });
-    assert.equal(detached.details.status, "detached");
-    assert.equal(detached.details.deliveryState, "detached");
-    assert.equal(running.deliveryState, "detached");
-    assert.equal(running.resultOwner, undefined);
-
-    resolveCompletion({
-      name: running.name,
-      task: running.task,
-      summary: "Detached completion summary",
-      sessionFile: running.sessionFile,
-      exitCode: 0,
-      elapsed: 6,
-    });
-    await sleep(0);
-
-    assert.equal(sent.length, 1);
-    assert.equal(sent[0].message.details.id, running.id);
-    assert.equal(sent[0].message.details.deliveryState, "detached");
-    assert.equal(getCompletedSubagentResultForTest(running.id)?.deliveredTo, "steer");
-  });
-
-  it("returns not_owned when detaching a detached child", () => {
-    const running = {
-      id: "child-detach-2",
-      name: "Detached child",
-      task: "Already detached",
-      mode: "background" as const,
-      executionState: "running" as const,
-      deliveryState: "detached" as const,
-      parentClosePolicy: "terminate" as const,
-      startTime: Date.now(),
-      sessionFile: "/tmp/child-detach-2.jsonl",
-    };
-
-    setRunningSubagentForTest(running);
-
-    const detached = detachSubagentForTest({ id: running.id });
-    assert.equal(detached.details.error, "not_owned");
-  });
-
-  it("returns already_owned when wait or join targets an owned child", async () => {
-    const awaited = {
-      id: "child-detach-3",
-      name: "Await-owned child",
-      task: "Owned by wait",
-      mode: "background" as const,
-      executionState: "running" as const,
-      deliveryState: "awaited" as const,
-      parentClosePolicy: "terminate" as const,
-      resultOwner: { kind: "wait" as const, ownerId: "wait:test" },
-      startTime: Date.now(),
-      sessionFile: "/tmp/child-detach-3.jsonl",
-      completionPromise: new Promise<any>(() => {}),
-    };
-    setRunningSubagentForTest(awaited);
-    const joined = await joinSubagentsForTest({ ids: [awaited.id] });
-    assert.equal(joined.details.error, "already_owned");
-
-    const joinedRunning = {
-      id: "child-detach-4",
-      name: "Join-owned child",
-      task: "Owned by join",
-      mode: "background" as const,
-      executionState: "running" as const,
-      deliveryState: "joined" as const,
-      parentClosePolicy: "terminate" as const,
-      resultOwner: { kind: "join" as const, ownerId: "join:test" },
-      startTime: Date.now(),
-      sessionFile: "/tmp/child-detach-4.jsonl",
-      completionPromise: new Promise<any>(() => {}),
-    };
-    setRunningSubagentForTest(joinedRunning);
-    const waited = await waitForSubagentForTest({ id: joinedRunning.id });
-    assert.equal(waited.details.error, "already_owned");
-  });
 
   it("returns timeout errors for wait and restores detached delivery", async () => {
     const sent: Array<{ message: any; options: any }> = [];
@@ -3768,11 +3658,8 @@ describe("subagents/index.ts helpers", () => {
     writeFileSync(abandonSessionFile, "");
 
     const terminateAbort = new AbortController();
-    const cancelAbort = new AbortController();
     let terminateAbortCount = 0;
-    let cancelAbortCount = 0;
     terminateAbort.signal.addEventListener("abort", () => terminateAbortCount++);
-    cancelAbort.signal.addEventListener("abort", () => cancelAbortCount++);
 
     const terminate = {
       id: "child-close-1",
@@ -3787,67 +3674,41 @@ describe("subagents/index.ts helpers", () => {
       sessionFile: "/tmp/child-close-1.jsonl",
       abortController: terminateAbort,
     };
-    const cancel = {
-      id: "child-close-2",
-      name: "Cancel child",
-      task: "Interrupt first",
-      mode: "interactive" as const,
-      executionState: "running" as const,
-      deliveryState: "joined" as const,
-      parentClosePolicy: "cancel" as const,
-      resultOwner: { kind: "join" as const, ownerId: "join:shutdown" },
-      startTime: Date.now(),
-      sessionFile: "/tmp/child-close-2.jsonl",
-      surface: "%42",
-      abortController: cancelAbort,
-    };
     const abandon = {
-      id: "child-close-3",
+      id: "child-close-2",
       name: "Abandon child",
       task: "Keep running",
       mode: "background" as const,
       executionState: "running" as const,
       deliveryState: "joined" as const,
-      parentClosePolicy: "abandon" as const,
+      parentClosePolicy: "continue" as const,
       resultOwner: { kind: "join" as const, ownerId: "join:shutdown" },
       startTime: Date.now(),
       sessionFile: abandonSessionFile,
     };
 
-    for (const running of [terminate, cancel, abandon]) {
+    for (const running of [terminate, abandon]) {
       setRunningSubagentForTest(running);
     }
 
-    const interrupted: string[] = [];
     const actions = shutdownSubagentsForTest({
       escalationMs: 10,
-      interruptSurfaceImpl(surface) {
-        interrupted.push(surface);
-      },
     });
 
     assert.deepEqual(
       actions.map(({ id, action }) => `${id}:${action}`),
       [
         "child-close-1:terminate",
-        "child-close-2:cancel",
-        "child-close-3:abandon",
+        "child-close-2:continue",
       ],
     );
     assert.equal(terminateAbortCount, 1);
-    assert.deepEqual(interrupted, ["%42"]);
-    assert.equal(cancelAbortCount, 0);
     assert.equal(terminate.resultOwner, undefined);
-    assert.equal(cancel.resultOwner, undefined);
     assert.equal(abandon.resultOwner, undefined);
     assert.equal(terminate.deliveryState, "detached");
-    assert.equal(cancel.deliveryState, "detached");
     assert.equal(abandon.deliveryState, "detached");
     assert.equal(abandon.allowSteerDelivery, false);
     assert.equal(existsSync(abandon.sessionFile), true);
-
-    await sleep(25);
-    assert.equal(cancelAbortCount, 1);
 
     const sent: Array<{ message: any; options: any }> = [];
     routeDetachedSubagentCompletionForTest(

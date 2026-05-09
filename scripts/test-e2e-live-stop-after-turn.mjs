@@ -164,7 +164,7 @@ try {
     [
       singleMarker,
       'First write exactly: "I’ll wait for the async child result unless you want me to work on something else while we wait."',
-      'Then call subagent with name "live-stop-bg", agent "live-stop-bg", title "Live stop async check", task "Run the async stop-after-turn check.", parentClosePolicy "terminate", and async true.',
+      'Then call subagent with name "live-stop-bg", agent "live-stop-bg", title "Live stop async check", task "Run the async stop-after-turn check."., and async true.',
       "Do not call any other tools. If the runtime continues after the tool result, write BAD_CONTINUED_SINGLE.",
     ].join("\n"),
   );
@@ -186,8 +186,8 @@ try {
     [
       mixedMarker,
       "In one assistant response, call subagent twice and do not call any other tools.",
-      'Call subagent with name "live-stop-bg", agent "live-stop-bg", title "Live mixed async check", task "Run the mixed async stop-after-turn check.", parentClosePolicy "terminate", and async true.',
-      'Call subagent with name "live-stop-sync", agent "live-stop-sync", title "Live mixed sync check", task "Run the mixed sync stop-after-turn check.", parentClosePolicy "terminate", and async false.',
+      'Call subagent with name "live-stop-bg", agent "live-stop-bg", title "Live mixed async check", task "Run the mixed async stop-after-turn check."., and async true.',
+      'Call subagent with name "live-stop-sync", agent "live-stop-sync", title "Live mixed sync check", task "Run the mixed sync stop-after-turn check."., and async false.',
       "If the runtime continues after the tool results, write BAD_CONTINUED_MIXED.",
     ].join("\n"),
   );
@@ -209,7 +209,7 @@ try {
     [
       optOutSingleMarker,
       "Use exactly this sequence.",
-      'First call subagent with name "live-stop-bg", agent "live-stop-bg", title "Live opt out async check", task "Run the opt-out async check.", parentClosePolicy "terminate", and async true.',
+      'First call subagent with name "live-stop-bg", agent "live-stop-bg", title "Live opt out async check", task "Run the opt-out async check."., and async true.',
       'After the subagent tool result, write exactly "OPT_OUT_SINGLE_CONTINUED" and nothing else.',
       "Do not call any other tools.",
     ].join("\n"),
@@ -235,8 +235,8 @@ try {
     [
       optOutMixedMarker,
       "Use exactly this sequence in one assistant response.",
-      'Call subagent with name "live-stop-bg", agent "live-stop-bg", title "Live opt out mixed async check", task "Run the opt-out mixed async check.", parentClosePolicy "terminate", and async true.',
-      'Call subagent with name "live-stop-sync", agent "live-stop-sync", title "Live opt out mixed sync check", task "Run the opt-out mixed sync check.", parentClosePolicy "terminate", and async false.',
+      'Call subagent with name "live-stop-bg", agent "live-stop-bg", title "Live opt out mixed async check", task "Run the opt-out mixed async check."., and async true.',
+      'Call subagent with name "live-stop-sync", agent "live-stop-sync", title "Live opt out mixed sync check", task "Run the opt-out mixed sync check."., and async false.',
       'After both subagent tool results, write exactly "OPT_OUT_MIXED_CONTINUED" and nothing else.',
       "Do not call any other tools.",
     ].join("\n"),

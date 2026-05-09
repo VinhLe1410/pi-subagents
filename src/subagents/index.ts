@@ -26,7 +26,6 @@ import {
 	createSurface,
 	sendCommand,
 	sendShellCommand,
-	interruptSurface,
 	pollForExit,
 	readScreenAsync,
 	consumeSubagentExitSignal,
@@ -53,7 +52,6 @@ import {
 import type {
 	CompletedSubagentResult,
 	DeliveryState,
-	DetachParams,
 	JoinParams,
 	ParentClosePolicy,
 	ParentShutdownAction,
@@ -137,16 +135,6 @@ const SubagentParams = Type.Object({
 				"Legacy alias for async:false. When true, wait for this launch to finish before returning. Prefer async:false for new calls. Agent frontmatter can force sync; passing false never disables a sync agent.",
 		}),
 	),
-	parentClosePolicy: Type.Optional(
-		Type.Union([
-			Type.Literal("terminate"),
-			Type.Literal("cancel"),
-			Type.Literal("abandon"),
-		], {
-			description:
-				"How this child should be handled if the parent session closes. Defaults to terminate.",
-		}),
-	),
 });
 
 const SubagentKillParams = Type.Object({
@@ -155,27 +143,6 @@ const SubagentKillParams = Type.Object({
 	}),
 });
 
-const SubagentWaitParams = Type.Object({
-	id: Type.String({
-		description: "Child id or unique display name to wait for",
-	}),
-	timeout: Type.Optional(
-		Type.Number({
-			description: "Timeout in seconds",
-		}),
-	),
-	onTimeout: Type.Optional(
-		Type.Union([
-			Type.Literal("error"),
-			Type.Literal("return_pending"),
-			Type.Literal("detach"),
-			Type.Literal("return"),
-		], {
-			description:
-				"How to handle a timeout. Defaults to error. Use return_pending, detach, or return to release ownership and return a pending result.",
-		}),
-	),
-});
 
 const SubagentJoinParams = Type.Object({
 	ids: Type.Array(Type.String({ description: "Child id or unique display name to join" }), {
@@ -199,11 +166,6 @@ const SubagentJoinParams = Type.Object({
 	),
 });
 
-const SubagentDetachParams = Type.Object({
-	id: Type.String({
-		description: "Child id or unique display name to detach",
-	}),
-});
 
 interface AgentDefaults {
 	enabled?: boolean;
@@ -230,6 +192,7 @@ interface AgentDefaults {
 	timeout?: number;
 	forkOutputReserveTokens?: number;
 	flags?: string;
+	parentClosePolicy?: "terminate" | "continue";
 }
 
 interface ResolvedAgentDefinition extends AgentDefaults {
@@ -338,6 +301,8 @@ function parseAgentDefinition(
 	const forkOutputReserveTokensRaw = get("fork-output-reserve-tokens");
 	const systemPromptRaw = get("system-prompt");
 	const extensionsRaw = get("extensions");
+	const flagsRaw = get("flags");
+	const parentClosePolicyRaw = get("parent-close-policy");
 	const body = content.replace(/^---\n[\s\S]*?\n---\n*/, "").trim();
 	return {
 		name: get("name") ?? basename(path, ".md"),
@@ -379,7 +344,11 @@ function parseAgentDefinition(
 				: undefined,
 		timeout: timeoutRaw != null ? parseInt(timeoutRaw, 10) : undefined,
 		forkOutputReserveTokens: parseOptionalNonNegativeInteger(forkOutputReserveTokensRaw),
-		flags: get("flags"),
+		flags: flagsRaw,
+		parentClosePolicy:
+			parentClosePolicyRaw === "terminate" || parentClosePolicyRaw === "continue"
+				? parentClosePolicyRaw
+				: undefined,
 	};
 }
 
@@ -845,7 +814,7 @@ function getModuleAbortSignal(): AbortSignal {
 }
 
 function getWatcherSignal(running: RunningSubagent, watcherAbort: AbortController): AbortSignal {
-	return running.parentClosePolicy === "abandon"
+	return running.parentClosePolicy === "continue"
 		? watcherAbort.signal
 		: AbortSignal.any([watcherAbort.signal, getModuleAbortSignal()]);
 }
@@ -1563,6 +1532,10 @@ export function resolveSubagentNoSessionForTest(agentDefs: AgentDefaults | null)
 	return resolveSubagentNoSession(agentDefs);
 }
 
+function resolveSubagentParentClosePolicy(agentDefs: AgentDefaults | null): ParentClosePolicy {
+	return agentDefs?.parentClosePolicy ?? "terminate";
+}
+
 function isSchemeLikePath(value: string): boolean {
 	return /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(value) && !/^[a-zA-Z]:[\\/]/.test(value);
 }
@@ -1606,7 +1579,6 @@ function enforceAgentFrontmatter(
 		fork: params.fork,
 		async: resolveSubagentAsync(params, agentDefs),
 		blocking: resolveSubagentBlocking(params, agentDefs),
-		parentClosePolicy: params.parentClosePolicy,
 	};
 }
 
@@ -1752,7 +1724,7 @@ function getStartedSubagentResult(running: RunningSubagent) {
 					(isAsync
 						? `Results will be delivered automatically as a steer message when it finishes. `
 						: `The parent is waiting for this result before continuing. `) +
-					`Use this exact id for subagent_wait/subagent_join when you need an explicit sync gate.`,
+					`Use this exact id for subagent_join when you need an explicit sync gate.`,
 			},
 		],
 		details: getStartedSubagentDetails(running),
@@ -2029,74 +2001,6 @@ function releaseSubagentWaitOwnership(
 	running.allowSteerDelivery = true;
 	running.deliveryState = "detached";
 	updateWidget();
-}
-
-function getSubagentDetachResult(id: string) {
-	return {
-		content: [{ type: "text", text: `Sub-agent "${id}" is detached again.` }],
-		details: {
-			id,
-			status: "detached" as const,
-			deliveryState: "detached" as const,
-		},
-	};
-}
-
-function getSubagentDetachErrorResult(
-	message: string,
-	error: string,
-	extra: Record<string, unknown> = {},
-) {
-	return {
-		content: [{ type: "text", text: message }],
-		details: { error, ...extra },
-	};
-}
-
-function detachSubagentResult(
-	params: DetachParams,
-	pi?: Pick<ExtensionAPI, "sendMessage">,
-) {
-	const match = findTrackedSubagent(params.id);
-	if (match.error || (!match.cached && !match.running)) {
-		return getSubagentDetachErrorResult(
-			match.error ?? `No subagent matches "${params.id}".`,
-			"not_found",
-			{ id: params.id },
-		);
-	}
-
-	const cached = match.cached;
-	if (cached) {
-		if (cached.deliveredTo || cached.deliveryState === "detached") {
-			return getSubagentDetachErrorResult(
-				`Sub-agent "${cached.name}" is not currently owned by wait or join.`,
-				"not_owned",
-				{ id: cached.id },
-			);
-		}
-		cached.deliveryState = "detached";
-		if (pi) deliverCompletedSubagentResultViaSteer(pi, cached);
-		return getSubagentDetachResult(cached.id);
-	}
-
-	const running = match.running!;
-	if (
-		running.deliveryState === "detached" ||
-		(running.resultOwner?.kind !== "wait" && running.resultOwner?.kind !== "join")
-	) {
-		return getSubagentDetachErrorResult(
-			`Sub-agent "${running.name}" is not currently owned by wait or join.`,
-			"not_owned",
-			{ id: running.id },
-		);
-	}
-
-	running.resultOwner = undefined;
-	running.allowSteerDelivery = true;
-	running.deliveryState = "detached";
-	updateWidget();
-	return getSubagentDetachResult(running.id);
 }
 
 async function waitForSubagentResult(
@@ -2572,13 +2476,6 @@ export function joinSubagentsForTest(
 	return joinSubagentResults(params, signal, pi);
 }
 
-export function detachSubagentForTest(
-	params: DetachParams,
-	pi?: Pick<ExtensionAPI, "sendMessage">,
-) {
-	return detachSubagentResult(params, pi);
-}
-
 function parseToolNames(tools: string): string[] {
 	return tools
 		.split(",")
@@ -2851,7 +2748,7 @@ function findLaunchMetadataInValue(value: unknown, sessionFile: string): Omit<Re
 				name: typeof record.name === "string" ? record.name : undefined,
 				autoExit: typeof record.autoExit === "boolean" ? record.autoExit : undefined,
 				parentClosePolicy:
-					record.parentClosePolicy === "terminate" || record.parentClosePolicy === "cancel" || record.parentClosePolicy === "abandon"
+					record.parentClosePolicy === "terminate" || record.parentClosePolicy === "continue"
 						? record.parentClosePolicy
 						: undefined,
 				blocking: typeof record.blocking === "boolean" ? record.blocking : undefined,
@@ -2962,7 +2859,7 @@ function buildPersistedSubagentLaunchMetadata(
 		mode,
 		sessionMode,
 		...(prepared.agentDefs?.autoExit !== undefined ? { autoExit: prepared.agentDefs.autoExit } : {}),
-		parentClosePolicy: params.parentClosePolicy ?? "terminate",
+		parentClosePolicy: resolveSubagentParentClosePolicy(prepared.agentDefs),
 		blocking: params.blocking === true,
 		async: params.async !== false,
 		...(prepared.effectiveModel ? { model: prepared.effectiveModel } : {}),
@@ -3114,7 +3011,7 @@ async function launchBackgroundSubagent(
 	const child = spawn(invocation.command, invocation.args, {
 		cwd: prepared.runtimePaths.effectiveCwd ?? ctx.cwd,
 		detached: true,
-		stdio: params.parentClosePolicy === "abandon"
+		stdio: resolveSubagentParentClosePolicy(prepared.agentDefs) === "continue"
 			? ["ignore", "ignore", "ignore"]
 			: ["ignore", "pipe", "pipe"],
 		env: getSubagentChildProcessEnv(invocation, envVars),
@@ -3133,7 +3030,7 @@ async function launchBackgroundSubagent(
 		mode: "background",
 		executionState: "running",
 		deliveryState: "detached",
-		parentClosePolicy: params.parentClosePolicy ?? "terminate",
+		parentClosePolicy: resolveSubagentParentClosePolicy(prepared.agentDefs),
 		blocking: params.blocking ?? false,
 		async: params.async ?? !(params.blocking ?? false),
 		autoExit: prepared.agentDefs?.autoExit ?? false,
@@ -3468,7 +3365,7 @@ async function launchSubagent(
 		mode: "interactive",
 		executionState: "running",
 		deliveryState: "detached",
-		parentClosePolicy: params.parentClosePolicy ?? "terminate",
+		parentClosePolicy: resolveSubagentParentClosePolicy(prepared.agentDefs),
 		blocking: params.blocking ?? false,
 		async: params.async ?? !(params.blocking ?? false),
 		autoExit: prepared.agentDefs?.autoExit ?? false,
@@ -3596,7 +3493,6 @@ async function watchSubagent(
 
 type ShutdownSubagentsOptions = {
 	escalationMs?: number;
-	interruptSurfaceImpl?: typeof interruptSurface;
 };
 
 function terminateBackgroundChildProcess(
@@ -3638,37 +3534,10 @@ function terminateInteractiveSubagent(running: RunningSubagent): void {
 	} catch {}
 }
 
-function cancelInteractiveSubagent(
-	running: RunningSubagent,
-	escalationMs: number,
-	interruptSurfaceImpl: typeof interruptSurface,
-): void {
-	if (!running.surface) {
-		terminateInteractiveSubagent(running);
-		return;
-	}
-
-	try {
-		interruptSurfaceImpl(running.surface);
-	} catch {
-		terminateInteractiveSubagent(running);
-		return;
-	}
-
-	clearSubagentShutdownTimer(running);
-	running.shutdownTimer = setTimeout(() => {
-		running.shutdownTimer = undefined;
-		terminateInteractiveSubagent(running);
-	}, escalationMs);
-	running.shutdownTimer.unref?.();
-}
-
 function shutdownSubagentsForParentExit(
 	options: ShutdownSubagentsOptions = {},
 ): Array<{ id: string; policy: ParentClosePolicy; action: ParentShutdownAction }> {
 	const escalationMs = options.escalationMs ?? PARENT_CLOSE_ESCALATION_MS;
-	const interruptSurfaceImpl =
-		options.interruptSurfaceImpl ?? interruptSurface;
 	const actions: Array<{
 		id: string;
 		policy: ParentClosePolicy;
@@ -3681,26 +3550,12 @@ function shutdownSubagentsForParentExit(
 		agent.resultOwner = undefined;
 		agent.deliveryState = "detached";
 
-		if (agent.parentClosePolicy === "abandon") {
+		if (agent.parentClosePolicy === "continue") {
 			actions.push({
 				id: agent.id,
 				policy: agent.parentClosePolicy,
-				action: "abandon",
+				action: "continue",
 			});
-			continue;
-		}
-
-		if (agent.parentClosePolicy === "cancel") {
-			actions.push({
-				id: agent.id,
-				policy: agent.parentClosePolicy,
-				action: "cancel",
-			});
-			if (agent.mode === "interactive") {
-				cancelInteractiveSubagent(agent, escalationMs, interruptSurfaceImpl);
-			} else {
-				abortBackgroundSubagent(agent, escalationMs);
-			}
 			continue;
 		}
 
@@ -3879,7 +3734,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 				"Interactive agents run in panes; background agents run headlessly; named-agent frontmatter is authoritative for runtime settings, and call-time duplicates for named agents are ignored instead of overriding it. " +
 				"Before calling subagent, translate the user's request into the child task; do not change the work based on the agent name. Use the catalog/list memory label only to decide context: isolated context starts a fresh chat, so write a self-contained task with objective, relevant facts/files, constraints, and expected output; forked context continues this conversation on a new branch, so give goal, boundary, and expected output without re-explaining everything. " +
 				"Handle trivial single-file reads, quick direct answers, and tiny one-shot edits yourself instead of delegating. " +
-				"Delegation ownership rule: after launching subagents, the parent may continue only with explicitly non-overlapping parent-owned work. Do not redo delegated work. If no safe independent work is clear, end the response and let async results arrive by steer. Ask the user only when there is a plausible next step but ownership is ambiguous. Use subagent_wait/subagent_join only for explicit sync gates or short non-blocking status probes. " +
+				"Delegation ownership rule: after launching subagents, the parent may continue only with explicitly non-overlapping parent-owned work. Do not redo delegated work. If no safe independent work is clear, end the response and let async results arrive by steer. Ask the user only when there is a plausible next step but ownership is ambiguous. Use subagent_join only for explicit sync gates or short non-blocking status probes. " +
 				getCoordinatorOnlyTurnPrompt(),
 			parameters: SubagentParams,
 
@@ -4078,54 +3933,6 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 			},
 		});
 
-	// ── subagent_wait tool ──
-	if (shouldRegister("subagent_wait"))
-		pi.registerTool({
-			name: "subagent_wait",
-			label: "Wait Subagent",
-			description:
-				"Wait for one child result by id or unique display name. Returns the child result directly and suppresses duplicate steer delivery.",
-			promptSnippet:
-				"Wait for one child result by id or unique display name. This creates a sync gate and blocks unless you provide a short timeout with onTimeout return_pending/detach/return. Do not use it by default after async launches; prefer yielding for steer delivery unless the user requested a sync gate or the next step truly depends on this result.",
-			parameters: SubagentWaitParams,
-
-			async execute(_toolCallId, params, signal) {
-				return asSubagentToolResult(await waitForSubagentResult(params, signal));
-			},
-
-			renderCall(args, theme) {
-				return new Text(
-					"▸ " +
-						theme.fg("toolTitle", theme.bold("wait")) +
-						theme.fg("dim", ` ${args.id}`),
-					0,
-					0,
-				);
-			},
-
-			renderResult(result, _opts, theme) {
-				const details = result.details as SyncSubagentToolDetails | undefined;
-				if (details?.error) {
-					return new Text(
-						theme.fg("error", `✗ ${details.error}`),
-						0,
-						0,
-					);
-				}
-				const status = details?.status ?? "completed";
-				const deliveryState = details?.deliveryState ? ` · ${details.deliveryState}` : "";
-				return new Text(
-					theme.fg("accent", "▸") +
-						" " +
-						theme.fg("toolTitle", theme.bold(details?.name ?? details?.id ?? "subagent")) +
-						theme.fg("dim", ` — ${status}${deliveryState}`),
-					0,
-					0,
-				);
-			},
-		});
-
-	// ── subagent_join tool ──
 	if (shouldRegister("subagent_join"))
 		pi.registerTool({
 			name: "subagent_join",
@@ -4174,52 +3981,6 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 			},
 		});
 
-	// ── subagent_detach tool ──
-	if (shouldRegister("subagent_detach"))
-		pi.registerTool({
-			name: "subagent_detach",
-			label: "Detach Subagent",
-			description:
-				"Release explicit wait/join ownership by id or unique display name and return a child to detached async behavior.",
-			promptSnippet:
-				"Release explicit wait/join ownership by id or unique display name and return a child to detached async behavior.",
-			parameters: SubagentDetachParams,
-
-			async execute(_toolCallId, params) {
-				return asSubagentToolResult(detachSubagentResult(params, pi));
-			},
-
-			renderCall(args, theme) {
-				return new Text(
-					"▸ " +
-						theme.fg("toolTitle", theme.bold("detach")) +
-						theme.fg("dim", ` ${args.id}`),
-					0,
-					0,
-				);
-			},
-
-			renderResult(result, _opts, theme) {
-				const details = result.details as SyncSubagentToolDetails | undefined;
-				if (details?.error) {
-					return new Text(
-						theme.fg("error", `✗ ${details.error}`),
-						0,
-						0,
-					);
-				}
-				return new Text(
-					theme.fg("accent", "▸") +
-						" " +
-						theme.fg("toolTitle", theme.bold(`detach ${details?.id ?? "subagent"}`)) +
-						theme.fg("dim", " — detached"),
-					0,
-					0,
-				);
-			},
-		});
-
-	// ── subagents_list tool ──
 	if (shouldRegister("subagents_list") && !hideSubagentsListForAmbientTopLevel)
 		pi.registerTool({
 			name: "subagents_list",
@@ -4530,7 +4291,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 					const child = spawn(invocation.command, invocation.args, {
 						...(resumeCwd ? { cwd: resumeCwd } : {}),
 						detached: true,
-						stdio: running.parentClosePolicy === "abandon"
+						stdio: running.parentClosePolicy === "continue"
 							? ["pipe", "ignore", "ignore"]
 							: ["pipe", "pipe", "pipe"],
 						env: getSubagentChildProcessEnv(invocation, resumeEnvVars),

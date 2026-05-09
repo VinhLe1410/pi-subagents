@@ -1,10 +1,10 @@
 import type { ChildProcess } from "node:child_process";
 
 export type DeliveryState = "detached" | "awaited" | "joined";
-export type ParentClosePolicy = "terminate" | "cancel" | "abandon";
+export type ParentClosePolicy = "terminate" | "continue";
 type CompletedDelivery = "steer" | "wait" | "join";
 export type SubagentCompletionStatus = "completed" | "failed" | "cancelled";
-export type ParentShutdownAction = "terminate" | "cancel" | "abandon";
+export type ParentShutdownAction = "terminate" | "continue";
 
 export interface SubagentParamsInput {
 	name: string;
@@ -20,7 +20,6 @@ export interface SubagentParamsInput {
 	background?: boolean;
 	async?: boolean;
 	blocking?: boolean;
-	parentClosePolicy?: ParentClosePolicy;
 }
 
 export interface WaitParams {
@@ -35,9 +34,6 @@ export interface JoinParams {
 	onTimeout?: "error" | "return_partial" | "detach" | "return";
 }
 
-export interface DetachParams {
-	id: string;
-}
 
 interface SubagentPing {
 	name: string;

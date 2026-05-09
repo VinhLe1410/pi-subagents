@@ -35,8 +35,8 @@ const keepTmp = process.env.PI_SUBAGENT_KEEP_E2E_TMP === "1";
 const prompt = [
   "The subagent tool is available in this session.",
   "Use exactly this sequence.",
-  'Call subagent with name "Live Default Child", agent "live-e2e-ext-default", title "Live default extension check", task "Follow your exact built-in instructions.", parentClosePolicy "terminate", and async false.',
-  'Call subagent with name "Live Allow Child", agent "live-e2e-ext-allow", title "Live allow extension check", task "Follow your exact built-in instructions.", parentClosePolicy "terminate", and async false.',
+  'Call subagent with name "Live Default Child", agent "live-e2e-ext-default", title "Live default extension check", task "Follow your exact built-in instructions."., and async false.',
+  'Call subagent with name "Live Allow Child", agent "live-e2e-ext-allow", title "Live allow extension check", task "Follow your exact built-in instructions."., and async false.',
   'After both tool calls return, reply with exactly "LIVE_E2E_EXTENSIONS_OK" and nothing else.',
   "Do not call any other tools.",
 ].join(" ");

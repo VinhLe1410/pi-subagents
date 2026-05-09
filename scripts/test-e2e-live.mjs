@@ -231,7 +231,7 @@ try {
     const started = startResult.details ?? {};
     if (!stageTwoSent) {
       const stageTwoPrompt = [
-        `Call subagent_wait with id \"${started.id}\" and timeout 120.`,
+        `Call subagent_join with ids [\"${started.id}\"] and timeout 120.`,
         'After the tool returns, reply with exactly "LIVE_E2E_PARENT_OK" and nothing else.',
         'Do not call any other tools.',
       ].join(" ");
@@ -242,7 +242,7 @@ try {
       continue;
     }
 
-    const waitResult = getToolResult(parent.events, "subagent_wait");
+    const waitResult = getToolResult(parent.events, "subagent_join");
     if (!waitResult || !assistantTexts.includes("LIVE_E2E_PARENT_OK")) {
       await sleep(500);
       continue;
@@ -252,13 +252,15 @@ try {
     if (started.mode !== "interactive") throw new Error(`Expected interactive child mode, got ${started.mode ?? "missing"}.`);
     if (started.deliveryState !== "detached") throw new Error(`Expected detached launch deliveryState, got ${started.deliveryState ?? "missing"}.`);
     if (started.blocking !== false) throw new Error(`Expected non-blocking child launch, got ${started.blocking ?? "missing"}.`);
-    if (waited.id !== started.id) throw new Error(`Waited for ${waited.id ?? "missing"} but started ${started.id ?? "missing"}.`);
-    if (waited.status !== "completed") throw new Error(`Expected completed wait status, got ${waited.status ?? "missing"}.`);
-    if (waited.deliveryState !== "awaited") throw new Error(`Expected awaited wait deliveryState, got ${waited.deliveryState ?? "missing"}.`);
-    if (!waited.sessionFile || !existsSync(waited.sessionFile)) throw new Error("subagent_wait did not return an existing sessionFile.");
+    if (waited.status !== "completed") throw new Error(`Expected completed join status, got ${waited.status ?? "missing"}.`);
+    if (waited.deliveryState !== "joined") throw new Error(`Expected joined deliveryState, got ${waited.deliveryState ?? "missing"}.`);
+    if (!waited.ids?.includes(started.id)) throw new Error(`Joined result missing child id ${started.id}.`);
+    const childResult = waited.results?.[started.id];
+    if (!childResult) throw new Error(`Join result missing child entry for ${started.id}.`);
+    if (!childResult.sessionFile || !existsSync(childResult.sessionFile)) throw new Error("subagent_join did not return an existing sessionFile.");
 
     // Verify child output via its last assistant message — no write_artifact needed
-    const childEvents = parseJsonl(waited.sessionFile);
+    const childEvents = parseJsonl(childResult.sessionFile);
     const childTexts = getAssistantTexts(childEvents);
     if (!childTexts.some((text) => text.includes("LIVE_CHILD_OK"))) {
       throw new Error("Child did not produce LIVE_CHILD_OK.");

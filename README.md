@@ -1,10 +1,8 @@
 # pi-subagents
 
-`pi-subagents` gives [pi](https://github.com/badlogic/pi-mono) named child agents.
+`pi-subagents` is a highly curated multi-agent framework for [Pi agent harness](https://github.com/earendil-works/pi-mono).
 
-Pi keeps the core small. It gives you extensions, skills, prompts, packages, sessions, and tools. It leaves subagents to packages because people want different runtimes.
-
-This package is one runtime. It began as a fork of [HazAT/pi-interactive-subagents](https://github.com/HazAT/pi-interactive-subagents), then grew into a fuller model: named agents, interactive panes, background workers, async results, sync gates, resume, forked context, and a widget that shows what is running.
+It began as a fork of [HazAT/pi-interactive-subagents](https://github.com/HazAT/pi-interactive-subagents), then grew into a monumental refactor: named agents, interactive panes, background workers, async parallelism, blocking agents, child-to-parent communication, forked context, a beautiful TUI widget, and much more!
 
 Use it when one agent should hand work to another agent instead of trying to do everything in one transcript.
 
@@ -15,20 +13,6 @@ https://github.com/user-attachments/assets/e0b97493-6c9b-4710-ba26-a6c08230ba28
 ```bash
 pi install git:github.com/edxeth/pi-subagents
 ```
-
-## What it adds
-
-- named agents from `.pi/agents/` or `~/.pi/agent/agents/`
-- interactive children in panes
-- background children through `pi -p`
-- async launches with result delivery by steer
-- sync launches when the parent must wait
-- `subagent_wait`, `subagent_join`, and `subagent_detach`
-- `caller_ping` and `subagent_resume` for child-to-parent feedback loops
-- session modes for clean, related, and forked child sessions
-- frontmatter that controls runtime behavior
-- child output through the final assistant message
-- a live widget for running children
 
 ## The model
 
@@ -99,9 +83,9 @@ For a fuller example of the intended style, see the [scout agent gist by edxeth]
 | `async` | `true` | `false` makes the launch sync |
 | `blocking` | `false` | Legacy sync flag. Prefer `async: false` |
 | `mode` | `interactive` | `interactive` pane or `background` process |
-| `timeout` | unset | Background timeout in seconds |
+| `parent-close-policy` | `terminate` | What happens to the child when the parent session exits: `terminate` (kill) or `continue` (leave running) |
 
-Named-agent frontmatter wins over duplicate launch-time fields such as `model`, `tools`, `cwd`, and `mode`. A parent can still choose `async: false` to wait, and it can still request `fork: true` for a forked launch.
+Named-agent frontmatter wins over duplicate launch-time fields such as `model`, `tools`, `cwd`, and `mode`. The parent can still request `async: false` to wait, though agent frontmatter with `blocking: true` overrides. Parent can request `fork: true` for a forked launch.
 
 ## Ambient awareness
 
@@ -137,11 +121,21 @@ Async launch:
 
 Sync launch:
 
-1. parent calls `subagent` with `async: false`, or the agent has `async: false`
+1. the agent has `async: false` in frontmatter
 2. parent waits
 3. tool result contains the child result
 
-Use `subagent_wait` to wait for one running child. Use `subagent_join` to wait for a fixed set. Use `subagent_detach` to release a wait or join and let the child return by steer again.
+#### subagent_join
+
+`subagent_join` waits for a set of children and returns their results in one response. Without it, launching N children async means N separate steer messages across N turns, each forcing a context re-read. With `subagent_join`, you get all results in one tool call:
+
+```
+subagent(...), subagent(...), subagent(...) → all launch
+join([id1, id2, id3])                        → blocks until all finish
+→ returns one grouped result
+```
+
+Accepts `timeout` and `onTimeout: "return_partial"` to proceed with partial results when some children are slow.
 
 After an async launch, the parent should get out of the way unless it has separate work. If the parent keeps solving the delegated task, you paid for two agents to race each other.
 
@@ -266,13 +260,19 @@ The `tools` field narrows built-in Pi tools. Protocol tools such as `caller_ping
 
 ## Parent shutdown policy
 
-The `subagent` tool accepts `parentClosePolicy`:
+Set `parent-close-policy` in the agent frontmatter:
+
+```yaml
+---
+name: scout
+parent-close-policy: continue
+---
+```
 
 | Value | Effect |
 | --- | --- |
 | `terminate` | Stop the child when the parent session exits |
-| `cancel` | Try an interrupt first, then stop the child |
-| `abandon` | Leave the child running and stop delivering its result to the closed parent |
+| `continue` | Leave the child running and stop delivering its result to the closed parent |
 
 The default is `terminate`.
 

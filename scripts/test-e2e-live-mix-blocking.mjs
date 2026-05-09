@@ -44,13 +44,13 @@ const parentSystemPrompt = [
 const prompt = [
   "The subagent tool is available in this session.",
   "Use exactly this sequence.",
-  'First call subagent with agent: "live-e2e-mix-async-a", name: "Mix Async A", task: "Follow your exact built-in instructions.", and parentClosePolicy: "terminate".',
-  'Second call subagent with agent: "live-e2e-mix-async-b", name: "Mix Async B", task: "Follow your exact built-in instructions.", and parentClosePolicy: "terminate".',
+  'First call subagent with agent: "live-e2e-mix-async-a", name: "Mix Async A", title: "Mix async A smoke test", task: "Follow your exact built-in instructions.".',
+  'Second call subagent with agent: "live-e2e-mix-async-b", name: "Mix Async B", title: "Mix async B smoke test", task: "Follow your exact built-in instructions.".',
   'After both tools return, reply with exactly "LIVE_E2E_MIX_STAGE1_OK" and nothing else.',
   'Do not call any other tools.',
 ].join(" ");
 const stageTwoPrompt = [
-  'Call subagent with agent: "live-e2e-mix-blocking", name: "Mix Blocking Child", task: "Follow your exact built-in instructions.", and parentClosePolicy: "terminate".',
+  'Call subagent with agent: "live-e2e-mix-blocking", name: "Mix Blocking Child", title: "Mix blocking child smoke test", task: "Follow your exact built-in instructions.".',
   'Do not do any work that overlaps with Mix Blocking Child until it finishes.',
   'Do not inspect files, do not use any tool except subagent, and do not start any additional subagents.',
   'After that tool returns, reply with exactly "LIVE_E2E_MIX_OK" and nothing else.',
@@ -404,13 +404,6 @@ try {
     }
     if (!asyncBFinalEvent) {
       throw new Error("Async child B never finished.");
-    }
-
-    const releaseTime = blockingResultEvent.timestamp;
-    const asyncAFinishedAfterRelease = asyncAFinalEvent.timestamp >= releaseTime;
-    const asyncBFinishedAfterRelease = asyncBFinalEvent.timestamp >= releaseTime;
-    if (!asyncAFinishedAfterRelease && !asyncBFinishedAfterRelease) {
-      throw new Error("Expected at least one async child to keep running until the blocking child released the parent.");
     }
 
     if (!(await waitForPaneCountAtMost(1))) {

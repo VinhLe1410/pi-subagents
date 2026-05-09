@@ -42,7 +42,7 @@ const prompt = [
   "Use exactly this sequence and do not call any other tools.",
   ...cases.map(
     ({ agent }) =>
-      `Call subagent with name "${agent}", agent "${agent}", title "${agent} live tools check", task "Follow your exact built-in instructions.", parentClosePolicy "terminate", and async false.`,
+      `Call subagent with name "${agent}", agent "${agent}", title "${agent} live tools check", task "Follow your exact built-in instructions.", async false.`,
   ),
   'After all subagent tool calls return, reply with exactly "LIVE_E2E_TOOLS_OK" and nothing else.',
 ].join("\n");
