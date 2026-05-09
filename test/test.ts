@@ -252,6 +252,21 @@ const ORIGINAL_ENV = Object.fromEntries(
   TRACKED_ENV_KEYS.map((key) => [key, process.env[key]]),
 ) as Record<(typeof TRACKED_ENV_KEYS)[number], string | undefined>;
 
+const ISOLATED_SUBAGENT_ENV_KEYS = [
+  "PI_DENY_TOOLS",
+  "PI_SUBAGENT_AUTO_EXIT",
+  "PI_SUBAGENT_DISABLE_AMBIENT_AWARENESS",
+  "PI_SUBAGENT_PARENT_SESSION",
+  "PI_SUBAGENT_SESSION",
+  "PI_SUBAGENT_SESSION_TITLE",
+] as const;
+
+function clearIsolatedSubagentEnv(): void {
+  for (const key of ISOLATED_SUBAGENT_ENV_KEYS) {
+    delete process.env[key];
+  }
+}
+
 function restoreTrackedEnv(): void {
   for (const key of TRACKED_ENV_KEYS) {
     const value = ORIGINAL_ENV[key];
@@ -262,6 +277,10 @@ function restoreTrackedEnv(): void {
     }
   }
 }
+
+beforeEach(() => {
+  clearIsolatedSubagentEnv();
+});
 
 afterEach(() => {
   restoreTrackedEnv();
