@@ -10,7 +10,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import {
 	shouldAutoExitOnAgentEnd,
 	shouldMarkUserTookOver,
-} from "./auto-exit.ts";
+} from "../auto-exit.ts";
 
 const require = createRequire(import.meta.url);
 

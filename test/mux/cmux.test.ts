@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
 
-import { createSurface, createSurfaceSplit } from "../../src/subagents/mux.ts";
+import { createSurface, createSurfaceSplit } from "../../src/mux.ts";
 
 const ORIGINAL_ENV = {
 	PATH: process.env.PATH,

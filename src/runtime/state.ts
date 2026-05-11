@@ -1,0 +1,146 @@
+import type { AgentToolResult } from "@mariozechner/pi-coding-agent";
+import type {
+	CompletedSubagentResult,
+	RunningSubagent,
+	SubagentCompletionStatus,
+	SubagentResult,
+} from "../types.ts";
+import { SubagentWidgetManager } from "./widget.ts";
+
+export const runningSubagents = new Map<string, RunningSubagent>();
+export const completedSubagentResults = new Map<string, CompletedSubagentResult>();
+
+function getSubagentCompletionStatus(
+	result: SubagentResult,
+): SubagentCompletionStatus {
+	if (result.error === "cancelled") return "cancelled";
+	return result.exitCode === 0 ? "completed" : "failed";
+}
+
+export function buildCompletedSubagentResult(
+	running: RunningSubagent,
+	result: SubagentResult,
+): CompletedSubagentResult {
+	return {
+		...result,
+		id: running.id,
+		agent: running.agent,
+		mode: running.mode,
+		status: getSubagentCompletionStatus(result),
+		deliveryState: running.deliveryState,
+		parentClosePolicy: running.parentClosePolicy,
+		blocking: running.blocking ?? false,
+		async: running.async ?? !(running.blocking ?? false),
+		autoExit: running.autoExit,
+		deliveredTo: null,
+	};
+}
+
+export function cacheCompletedSubagentResult(
+	running: RunningSubagent,
+	result: SubagentResult,
+): CompletedSubagentResult {
+	const cached = buildCompletedSubagentResult(running, result);
+	completedSubagentResults.set(running.id, cached);
+	return cached;
+}
+
+export function clearSubagentShutdownTimer(running: RunningSubagent): void {
+	if (!running.shutdownTimer) return;
+	clearTimeout(running.shutdownTimer);
+	running.shutdownTimer = undefined;
+}
+
+export const widgetManager = new SubagentWidgetManager(() =>
+	runningSubagents.values(),
+);
+
+const WIDGET_MANAGER_KEY = Symbol.for("pi-subagents/widget-manager");
+const MODULE_ABORT_KEY = Symbol.for("pi-subagents/poll-abort-controller");
+
+function initializeModuleReloadState(): AbortController {
+	const previousWidgetManager = (globalThis as Record<PropertyKey, unknown>)[
+		WIDGET_MANAGER_KEY
+	] as SubagentWidgetManager | undefined;
+	previousWidgetManager?.reset();
+
+	const previousAbortController = (globalThis as Record<PropertyKey, unknown>)[
+		MODULE_ABORT_KEY
+	] as AbortController | undefined;
+	previousAbortController?.abort();
+
+	const controller = new AbortController();
+	(globalThis as Record<PropertyKey, unknown>)[WIDGET_MANAGER_KEY] =
+		widgetManager;
+	(globalThis as Record<PropertyKey, unknown>)[MODULE_ABORT_KEY] = controller;
+	return controller;
+}
+
+export type SubagentToolResult = AgentToolResult<unknown> & { terminate?: true };
+
+export function asSubagentToolResult(result: unknown): SubagentToolResult {
+	return result as SubagentToolResult;
+}
+
+export const moduleAbortController = initializeModuleReloadState();
+export let stopAfterCurrentSubagentBatch = false;
+
+export function resetSubagentBatchStopRequest(): void {
+	stopAfterCurrentSubagentBatch = false;
+}
+
+function isCoordinatorOnlyTurnDisabled(): boolean {
+	return process.env.PI_SUBAGENT_DISABLE_COORDINATOR_ONLY_TURN === "1";
+}
+
+export function requestSubagentBatchStop(): void {
+	if (isCoordinatorOnlyTurnDisabled()) return;
+	stopAfterCurrentSubagentBatch = true;
+}
+
+export function getCoordinatorOnlyTurnPrompt(): string {
+	if (isCoordinatorOnlyTurnDisabled()) {
+		return "Coordinator-only turn stop is disabled by PI_SUBAGENT_DISABLE_COORDINATOR_ONLY_TURN=1; after async launches you may continue only with explicitly non-overlapping parent-owned work. Do not redo delegated work.";
+	}
+	return "Async launches request a graceful stop after the current tool batch so results can arrive by steer instead of provoking another autonomous parent continuation. PI_SUBAGENT_DISABLE_COORDINATOR_ONLY_TURN=1 disables only that runtime stop; the ownership contract still applies.";
+}
+
+export function getSubagentBatchStopMetadata(): { terminate?: true } {
+	return stopAfterCurrentSubagentBatch ? { terminate: true } : {};
+}
+
+export function withSubagentBatchStop<T extends AgentToolResult<unknown>>(
+	result: T,
+): T & { terminate?: true } {
+	return {
+		...result,
+		...getSubagentBatchStopMetadata(),
+	};
+}
+
+function getModuleAbortSignal(): AbortSignal {
+	return moduleAbortController.signal;
+}
+
+export function getWatcherSignal(
+	running: RunningSubagent,
+	watcherAbort: AbortController,
+): AbortSignal {
+	return running.parentClosePolicy === "continue"
+		? watcherAbort.signal
+		: AbortSignal.any([watcherAbort.signal, getModuleAbortSignal()]);
+}
+
+export function resetRuntimeStateForTest(
+	resetAmbient: () => void,
+): void {
+	resetAmbient();
+	for (const agent of runningSubagents.values()) {
+		clearSubagentShutdownTimer(agent);
+		agent.abortController?.abort();
+	}
+	runningSubagents.clear();
+	completedSubagentResults.clear();
+	resetSubagentBatchStopRequest();
+	widgetManager.reset();
+}

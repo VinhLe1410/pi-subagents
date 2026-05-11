@@ -1,0 +1,174 @@
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import {
+	getPiInvocation,
+	getSubagentChildProcessEnv,
+} from "./child-command.ts";
+import {
+	getBaseSubagentEnvVars,
+	getFlagsLaunchArgs,
+	getPreparedExtensionLaunchArgs,
+	getPreparedModel,
+	getPreparedRoleBlock,
+	getPreparedSessionLaunchArgs,
+	getPreparedSkillList,
+	prepareSubagentLaunch,
+	type SubagentLaunchContext,
+} from "./prep.ts";
+import {
+	resolveSubagentNoContextFiles,
+	resolveSubagentNoSession,
+	resolveSubagentParentClosePolicy,
+} from "./policy.ts";
+import type { RunningSubagent, SubagentParamsInput } from "../types.ts";
+import {
+	buildPiPromptArgs,
+	resolveEffectiveSessionMode,
+	writeSubagentLaunchMetadataEntry,
+	writeSubagentLaunchMetadataEntryWhenReady,
+} from "../session/session-files.ts";
+import { seedPreparedSubagentSession, getNoSessionSeedMode } from "./seed-child-session.ts";
+import { writeTaskArtifact } from "./prompt-artifacts.ts";
+import { getSubagentDisplayTitle } from "../agents/titles.ts";
+import { getSubagentToolLaunchArgs } from "../tools/policy.ts";
+import { buildPersistedSubagentLaunchMetadata } from "./prep.ts";
+import { getEntryCount } from "../session/session.ts";
+import { CHILD_CONTEXT_BOUNDARY_SYSTEM_PROMPT } from "./context-boundary.ts";
+
+export interface BackgroundLaunchRuntime {
+	getContextWindow(modelRef: string | undefined): number | undefined;
+}
+
+export async function launchBackgroundSubagent(
+	params: SubagentParamsInput,
+	ctx: SubagentLaunchContext,
+	runtime: BackgroundLaunchRuntime,
+): Promise<RunningSubagent> {
+	const startTime = Date.now();
+	const id = Math.random().toString(16).slice(2, 10);
+	const prepared = prepareSubagentLaunch(params, ctx);
+	const subagentDonePath = join(
+		dirname(new URL(import.meta.url).pathname),
+		"subagent-done.ts",
+	);
+	const roleBlock = getPreparedRoleBlock(prepared);
+	const sessionMode = resolveEffectiveSessionMode(params, prepared.agentDefs);
+	const noSession = resolveSubagentNoSession(prepared.agentDefs);
+	const noSessionSeedMode = noSession ? getNoSessionSeedMode(sessionMode) : null;
+	const directTask = sessionMode === "fork" || noSessionSeedMode === "fork";
+	const modeHint = prepared.agentDefs?.autoExit
+		? "Complete your task autonomously."
+		: "Manual lifecycle: do not stop after your final text. After completing the task, you MUST call the subagent_done tool unless you intentionally need the human operator to terminate this session. If operator close is required, say exactly `MANUAL CLOSE REQUIRED:` followed by the reason and wait.";
+	const summaryInstruction = prepared.agentDefs?.autoExit
+		? "Your FINAL assistant message should summarize what you accomplished."
+		: "Your FINAL assistant message before calling subagent_done, or before asking for manual close, should summarize what you accomplished. After that final message, immediately call subagent_done.";
+	const fullTask = directTask
+		? params.task
+		: `${roleBlock}\n\n${modeHint}\n\n${params.task}\n\n${summaryInstruction}`;
+
+	const args: string[] = [
+		"-p",
+		...getPreparedSessionLaunchArgs(prepared),
+		...getPreparedExtensionLaunchArgs(prepared, subagentDonePath),
+	];
+	const { boundarySystemPrompt } = seedPreparedSubagentSession(
+		prepared,
+		params,
+		ctx,
+		sessionMode,
+		noSession,
+	);
+
+	const model = getPreparedModel(prepared);
+	if (model) args.push("--model", model);
+	if (resolveSubagentNoContextFiles(prepared.agentDefs)) args.push("--no-context-files");
+
+	let systemPrompt: string | undefined;
+	if (prepared.identityInSystemPrompt && prepared.identity) {
+		const flag = prepared.agentDefs?.systemPromptMode === "replace"
+			? "--system-prompt"
+			: "--append-system-prompt";
+		systemPrompt = prepared.identity;
+		args.push(flag, systemPrompt);
+	}
+	if (boundarySystemPrompt) {
+		args.push("--append-system-prompt", CHILD_CONTEXT_BOUNDARY_SYSTEM_PROMPT);
+	}
+	const launchMetadata = buildPersistedSubagentLaunchMetadata(
+		prepared,
+		params,
+		"background",
+		sessionMode,
+		boundarySystemPrompt,
+		systemPrompt,
+	);
+	if (existsSync(prepared.subagentSessionFile)) {
+		writeSubagentLaunchMetadataEntry(prepared.subagentSessionFile, launchMetadata);
+	}
+	args.push(...getSubagentToolLaunchArgs(prepared.effectiveTools, prepared.denySet));
+	args.push(...getFlagsLaunchArgs(prepared.agentDefs?.flags));
+
+	const taskArg = `@${writeTaskArtifact(params.name, fullTask, ctx)}`;
+	for (const promptArg of buildPiPromptArgs(
+		getPreparedSkillList(prepared),
+		taskArg,
+		directTask,
+	)) {
+		args.push(promptArg);
+	}
+
+	const envVars = getBaseSubagentEnvVars(prepared, params, resolveEffectiveSessionMode);
+	if (prepared.agentDefs?.autoExit) envVars.PI_SUBAGENT_AUTO_EXIT = "1";
+	envVars.PI_SUBAGENT_SESSION = prepared.subagentSessionFile;
+	const launchEntryCount = existsSync(prepared.subagentSessionFile)
+		? getEntryCount(prepared.subagentSessionFile)
+		: 0;
+
+	const invocation = getPiInvocation(args);
+	const child = spawn(invocation.command, invocation.args, {
+		cwd: prepared.runtimePaths.effectiveCwd ?? ctx.cwd,
+		detached: true,
+		stdio: resolveSubagentParentClosePolicy(prepared.agentDefs) === "continue"
+			? ["ignore", "ignore", "ignore"]
+			: ["ignore", "pipe", "pipe"],
+		env: getSubagentChildProcessEnv(invocation, envVars),
+	});
+	child.unref();
+	if (!existsSync(prepared.subagentSessionFile)) {
+		await writeSubagentLaunchMetadataEntryWhenReady(
+			prepared.subagentSessionFile,
+			launchMetadata,
+		);
+	}
+
+	const running: RunningSubagent = {
+		id,
+		name: params.name,
+		task: params.task,
+		title: getSubagentDisplayTitle(params),
+		agent: params.agent,
+		mode: "background",
+		executionState: "running",
+		deliveryState: "detached",
+		parentClosePolicy: resolveSubagentParentClosePolicy(prepared.agentDefs),
+		blocking: params.blocking ?? false,
+		async: params.async ?? !(params.blocking ?? false),
+		autoExit: prepared.agentDefs?.autoExit ?? false,
+		noSession,
+		childProcess: child,
+		startTime,
+		sessionFile: prepared.subagentSessionFile,
+		launchEntryCount,
+		modelContextWindow: runtime.getContextWindow(prepared.effectiveModelRef),
+	};
+	const rememberTail = (current: string | undefined, chunk: Buffer | string) =>
+		`${current ?? ""}${chunk.toString()}`.slice(-4000);
+	child.stdout?.on("data", (chunk) => {
+		running.stdoutTail = rememberTail(running.stdoutTail, chunk);
+	});
+	child.stderr?.on("data", (chunk) => {
+		running.stderrTail = rememberTail(running.stderrTail, chunk);
+	});
+	return running;
+}

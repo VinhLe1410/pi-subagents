@@ -3,8 +3,8 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import type { RunningSubagent } from "../../src/subagents/runtime-types.ts";
-import { SubagentWidgetManager } from "../../src/subagents/widget.ts";
+import type { RunningSubagent } from "../../src/types.ts";
+import { SubagentWidgetManager } from "../../src/runtime/widget.ts";
 
 function stripAnsi(text: string): string {
 	return text.replace(/\u001b\[[0-9;]*m/g, "");

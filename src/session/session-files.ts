@@ -1,0 +1,311 @@
+import {
+	appendFileSync,
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, dirname, join } from "node:path";
+import { randomUUID } from "node:crypto";
+import type { AgentDefaults } from "../agents/definitions.ts";
+import type { ParentClosePolicy, SubagentParamsInput } from "../types.ts";
+import { getEntries } from "./session.ts";
+import { writeTrimmedForkSession } from "./trimmed-session.ts";
+
+export type SubagentSessionMode = "standalone" | "lineage-only" | "fork";
+
+export interface ChildContextBoundaryOptions {
+	name: string;
+	agent?: string;
+	spawningAllowed: boolean;
+}
+
+export type ResumeMode = "interactive" | "background";
+
+export interface PersistedSubagentLaunchMetadata {
+	version: 1;
+	timestamp: string;
+	name: string;
+	title?: string;
+	agent?: string;
+	mode: ResumeMode;
+	sessionMode: SubagentSessionMode;
+	autoExit?: boolean;
+	parentClosePolicy: ParentClosePolicy;
+	blocking: boolean;
+	async: boolean;
+	model?: string;
+	thinking?: string;
+	modelRef?: string;
+	tools?: string;
+	skills?: string;
+	denyTools: string[];
+	extensions?: string[];
+	noContextFiles: boolean;
+	noSession: boolean;
+	agentConfigDir: string;
+	cwd: string;
+	systemPromptMode?: "append" | "replace";
+	systemPrompt?: string;
+	boundarySystemPrompt: boolean;
+	forkOutputReserveTokens?: number;
+	flags?: string;
+}
+
+const SUBAGENT_LAUNCH_METADATA_CUSTOM_TYPE =
+	"pi-subagents_launch_metadata";
+
+/**
+ * Generate a unique session file path for a subagent.
+ */
+export function generateSubagentSessionFile(sessionDir: string): string {
+	const ts = `${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 23)}Z`;
+	const uuid = [
+		Math.random().toString(16).slice(2, 10),
+		Math.random().toString(16).slice(2, 10),
+		Math.random().toString(16).slice(2, 10),
+		Math.random().toString(16).slice(2, 6),
+	].join("-");
+	return join(sessionDir, `${ts}_${uuid}.jsonl`);
+}
+
+export function getDoneSentinelFile(sessionFile: string, id: string): string {
+	const base = basename(sessionFile, ".jsonl");
+	return join(tmpdir(), `pi-subagent-done-${base}-${id}.txt`);
+}
+
+function writeHeaderOnlySubagentSessionFile(
+	childSessionFile: string,
+	cwd = process.cwd(),
+	parentSessionFile?: string,
+): void {
+	if (existsSync(childSessionFile)) return;
+	mkdirSync(dirname(childSessionFile), { recursive: true });
+	writeFileSync(
+		childSessionFile,
+		`${JSON.stringify({
+			type: "session",
+			version: 3,
+			id: randomUUID(),
+			timestamp: new Date().toISOString(),
+			cwd,
+			...(parentSessionFile ? { parentSession: parentSessionFile } : {}),
+		})}\n`,
+		"utf8",
+	);
+}
+
+export function seedSubagentSessionFile(
+	mode: Exclude<SubagentSessionMode, "standalone">,
+	parentSessionFile: string,
+	childSessionFile: string,
+	cwd = process.cwd(),
+	/** When provided, trims the forked session to fit within the child's context window. */
+	forkTrimOptions?: {
+		childContextWindow: number;
+		reserveTokens?: number;
+		launchToolCallId?: string;
+	},
+): void {
+	void cwd;
+	mkdirSync(dirname(childSessionFile), { recursive: true });
+	if (mode === "lineage-only") return;
+
+	if (mode === "fork") {
+		if (!forkTrimOptions) {
+			throw new Error(
+				"Cannot fork subagent session: child model context window is unknown.",
+			);
+		}
+		writeTrimmedForkSession(
+			parentSessionFile,
+			childSessionFile,
+			forkTrimOptions,
+		);
+		return;
+	}
+}
+
+function getLastSessionEntryId(sessionFile: string): string | null {
+	if (!existsSync(sessionFile)) return null;
+	const lines = readFileSync(sessionFile, "utf8")
+		.split("\n")
+		.map((line) => line.trim())
+		.filter(Boolean);
+	for (let i = lines.length - 1; i >= 0; i--) {
+		try {
+			const entry = JSON.parse(lines[i]);
+			if (entry.type !== "session" && typeof entry.id === "string")
+				return entry.id;
+		} catch {
+			// Ignore malformed historical lines here; session loading will report them later.
+		}
+	}
+	return null;
+}
+
+export function writeChildContextBoundaryEntry(
+	childSessionFile: string,
+	options: ChildContextBoundaryOptions,
+	content: string,
+): void {
+	if (!existsSync(childSessionFile)) return;
+	const parentId = getLastSessionEntryId(childSessionFile);
+	const line = JSON.stringify({
+		type: "custom_message",
+		customType: "subagent_boundary",
+		content,
+		display: false,
+		details: { name: options.name, spawningAllowed: options.spawningAllowed },
+		id: randomUUID().replace(/-/g, "").slice(0, 8),
+		parentId,
+		timestamp: new Date().toISOString(),
+	});
+	writeFileSync(childSessionFile, `${line}\n`, { flag: "a" });
+}
+
+export function writeSubagentExtensionEntry(
+	path: string,
+	extensions: string[] | undefined,
+): void {
+	if (extensions === undefined) return;
+	mkdirSync(dirname(path), { recursive: true });
+	writeFileSync(
+		`${path}.ext`,
+		`${JSON.stringify({ extensions, timestamp: new Date().toISOString() })}\n`,
+	);
+}
+
+export function writeSubagentLaunchMetadataEntry(
+	path: string,
+	metadata: PersistedSubagentLaunchMetadata,
+): void {
+	if (!existsSync(path)) return;
+	const parentId = getLastSessionEntryId(path);
+	const line = JSON.stringify({
+		type: "custom",
+		customType: SUBAGENT_LAUNCH_METADATA_CUSTOM_TYPE,
+		data: metadata,
+		id: randomUUID().replace(/-/g, "").slice(0, 8),
+		parentId,
+		timestamp: new Date().toISOString(),
+	});
+	appendFileSync(path, `${line}\n`, "utf8");
+}
+
+async function waitForSessionFile(
+	path: string,
+	timeoutMs = 5000,
+): Promise<boolean> {
+	const startedAt = Date.now();
+	while (Date.now() - startedAt < timeoutMs) {
+		if (existsSync(path)) return true;
+		await new Promise<void>((resolve) => setTimeout(resolve, 100));
+	}
+	return existsSync(path);
+}
+
+export async function writeSubagentLaunchMetadataEntryWhenReady(
+	path: string,
+	metadata: PersistedSubagentLaunchMetadata,
+	timeoutMs = 5000,
+): Promise<void> {
+	if (await waitForSessionFile(path, timeoutMs)) {
+		writeSubagentLaunchMetadataEntry(path, metadata);
+		return;
+	}
+	writeHeaderOnlySubagentSessionFile(path, metadata.cwd);
+	writeSubagentLaunchMetadataEntry(path, metadata);
+}
+
+export function isResumeMode(value: unknown): value is ResumeMode {
+	return value === "interactive" || value === "background";
+}
+
+export function readSubagentLaunchMetadata(
+	path: string,
+): PersistedSubagentLaunchMetadata | undefined {
+	try {
+		const entries = getEntries(path) as Array<Record<string, unknown>>;
+		for (let i = entries.length - 1; i >= 0; i--) {
+			const entry = entries[i];
+			if (
+				entry?.type !== "custom" ||
+				entry.customType !== SUBAGENT_LAUNCH_METADATA_CUSTOM_TYPE
+			)
+				continue;
+			const data = entry.data as
+				| Partial<PersistedSubagentLaunchMetadata>
+				| undefined;
+			if (!data || data.version !== 1 || !isResumeMode(data.mode))
+				return undefined;
+			return data as PersistedSubagentLaunchMetadata;
+		}
+	} catch {
+		return undefined;
+	}
+	return undefined;
+}
+
+/**
+ * Reads the extension list written by writeSubagentExtensionEntry from the
+ * companion file. Returns the extension array or undefined if no file exists.
+ */
+export function readSubagentExtensionEntry(path: string): string[] | undefined {
+	try {
+		const extPath = `${path}.ext`;
+		if (!existsSync(extPath)) return undefined;
+		const content = readFileSync(extPath, "utf8");
+		const entry = JSON.parse(content.trim());
+		if (Array.isArray(entry?.extensions)) return entry.extensions;
+	} catch {
+		// best-effort; fall back to --no-extensions
+	}
+	return undefined;
+}
+
+export function resolveEffectiveSessionMode(
+	_params: Partial<SubagentParamsInput>,
+	agentDefs: AgentDefaults | null,
+): SubagentSessionMode {
+	if (agentDefs?.sessionMode) return agentDefs.sessionMode;
+	if (agentDefs?.fork) return "fork";
+	return "lineage-only";
+}
+
+export type ResolveSubagentNoSession = (agentDefs: AgentDefaults | null) => boolean;
+
+export function resolveTaskSessionMode(
+	agentDefs: AgentDefaults | null,
+	resolveSubagentNoSession: ResolveSubagentNoSession,
+	getNoSessionSeedMode: (
+		sessionMode: SubagentSessionMode,
+	) => Exclude<SubagentSessionMode, "standalone"> | null,
+): SubagentSessionMode {
+	const sessionMode = resolveEffectiveSessionMode({}, agentDefs);
+	if (!resolveSubagentNoSession(agentDefs)) return sessionMode;
+	return getNoSessionSeedMode(sessionMode) ?? sessionMode;
+}
+
+export function buildPiPromptArgs(
+	skills: string[],
+	taskArg: string,
+	directTask: boolean,
+): string[] {
+	const skillPrompts = skills.map((skill) => `/skill:${skill}`);
+	const needsSeparator = !directTask && skillPrompts.length > 0;
+	return [...(needsSeparator ? [""] : []), ...skillPrompts, taskArg];
+}
+
+export function buildIdentityBlock(
+	agentDefs: AgentDefaults | null,
+	systemPrompt?: string,
+): string {
+	return [agentDefs?.body, systemPrompt]
+		.filter(
+			(value): value is string =>
+				typeof value === "string" && value.trim() !== "",
+		)
+		.join("\n\n");
+}

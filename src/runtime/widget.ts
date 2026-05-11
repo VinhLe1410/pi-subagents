@@ -9,7 +9,7 @@ import type {
 	SessionUsage,
 	WidgetThemeLike,
 	WidgetTuiLike,
-} from "./runtime-types.ts";
+} from "../types.ts";
 
 const SPINNER = ["◜", "◠", "◝", "◞", "◡", "◟"];
 const WIDGET_HORIZONTAL_PADDING = 1;

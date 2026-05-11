@@ -1,0 +1,582 @@
+import {
+	assert,
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	writeFileSync,
+	join,
+	afterEach,
+	describe,
+	it,
+	getSessionArtifactDir,
+	subagentsExtension,
+	buildSubagentSessionTitleForTest,
+	getSubagentAgentOverrideErrorForTest,
+	getSubagentAgentRequirementErrorForTest,
+	getSubagentDisplayTitleForTest,
+	getTerminalAssistantSummaryForTest,
+	resetSubagentStateForTest,
+	resolveEffectiveSessionModeForTest,
+	resolveSubagentBlockingForTest,
+	resolveSubagentConfigDir,
+	resolveSubagentRuntimePathsForTest,
+	seedSubagentSessionFileForTest,
+	shouldReapStableTerminalSummaryForTest,
+	writeSystemPromptArtifactForTest,
+	createTestDir,
+	resolveSubagentCwdForTest,
+	SESSION_HEADER,
+	MODEL_CHANGE,
+} from "../support/index.ts";
+
+describe("ambient agents and runtime paths", () => {
+	afterEach(() => {
+		resetSubagentStateForTest();
+	});
+
+	it("skips startup catalog injection for child or denied-spawning sessions", () => {
+		const dir = createTestDir();
+		const prevDenied = process.env.PI_DENY_TOOLS;
+		const configDir = join(dir, "agent-root");
+		const agentsDir = join(configDir, "agents");
+		mkdirSync(agentsDir, { recursive: true });
+		process.env.PI_CODING_AGENT_DIR = configDir;
+		writeFileSync(
+			join(agentsDir, "reviewer.md"),
+			`---\nname: reviewer\ndescription: Review changes for regressions\n---\n\nReviewer body.`,
+		);
+
+		const start = () => {
+			const handlers = new Map<string, any>();
+			const sent: any[] = [];
+			subagentsExtension({
+				on(event: string, handler: any) {
+					handlers.set(event, handler);
+				},
+				registerCommand() {},
+				registerMessageRenderer() {},
+				registerTool() {},
+				sendMessage(message: any) {
+					sent.push(message);
+				},
+			} as any);
+			return { handlers, sent };
+		};
+
+		try {
+			const child = start();
+			child.handlers.get("session_start")(
+				{ type: "session_start", reason: "startup" },
+				{
+					cwd: dir,
+					hasUI: false,
+					ui: { setWidget() {} },
+					sessionManager: {
+						getHeader: () => ({
+							id: "child",
+							type: "session",
+							timestamp: "",
+							cwd: dir,
+							parentSession: "/tmp/root.jsonl",
+						}),
+					},
+				},
+			);
+			assert.equal(child.sent.length, 0);
+
+			process.env.PI_DENY_TOOLS = "subagent";
+			const denied = start();
+			denied.handlers.get("session_start")(
+				{ type: "session_start", reason: "startup" },
+				{
+					cwd: dir,
+					hasUI: false,
+					ui: { setWidget() {} },
+					sessionManager: {
+						getHeader: () => ({
+							id: "root",
+							type: "session",
+							timestamp: "",
+							cwd: dir,
+						}),
+					},
+				},
+			);
+			assert.equal(denied.sent.length, 0);
+		} finally {
+			if (prevDenied == null) delete process.env.PI_DENY_TOOLS;
+			else process.env.PI_DENY_TOOLS = prevDenied;
+		}
+	});
+
+	it("disables ambient awareness via env var without breaking explicit listing", async () => {
+		const dir = createTestDir();
+		const prevCwd = process.cwd();
+		const prevKillSwitch = process.env.PI_SUBAGENT_DISABLE_AMBIENT_AWARENESS;
+		const configDir = join(dir, "agent-root");
+		const agentsDir = join(configDir, "agents");
+		mkdirSync(agentsDir, { recursive: true });
+		process.env.PI_CODING_AGENT_DIR = configDir;
+		process.env.PI_SUBAGENT_DISABLE_AMBIENT_AWARENESS = "1";
+		writeFileSync(
+			join(agentsDir, "reviewer.md"),
+			`---\nname: reviewer\ndescription: Review changes\nmode: background\n---\n\nReviewer body.`,
+		);
+
+		const handlers = new Map<string, any>();
+		const tools = new Map<string, any>();
+		const sent: any[] = [];
+
+		try {
+			process.chdir(dir);
+			subagentsExtension({
+				on(event: string, handler: any) {
+					handlers.set(event, handler);
+				},
+				registerCommand() {},
+				registerMessageRenderer() {},
+				registerTool(definition: any) {
+					tools.set(definition.name, definition);
+					return definition;
+				},
+				sendMessage(message: any) {
+					sent.push(message);
+				},
+			} as any);
+
+			handlers.get("session_start")(
+				{ type: "session_start", reason: "startup" },
+				{
+					cwd: dir,
+					hasUI: false,
+					ui: { setWidget() {} },
+					sessionManager: {
+						getHeader: () => ({
+							id: "root",
+							type: "session",
+							timestamp: "",
+							cwd: dir,
+						}),
+					},
+				},
+			);
+			assert.equal(sent.length, 0);
+
+			const listTool = tools.get("subagents_list");
+			assert.ok(listTool);
+			const result = await listTool.execute();
+			assert.equal(result.details.agents[0].name, "reviewer");
+			assert.equal(result.details.agents[0].description, "Review changes");
+			assert.match(
+				result.content[0].text,
+				/reviewer \[isolated context\] — Review changes/,
+			);
+			assert.doesNotMatch(result.content[0].text, /\(background\)|\| use:/);
+		} finally {
+			process.chdir(prevCwd);
+			if (prevKillSwitch == null)
+				delete process.env.PI_SUBAGENT_DISABLE_AMBIENT_AWARENESS;
+			else process.env.PI_SUBAGENT_DISABLE_AMBIENT_AWARENESS = prevKillSwitch;
+		}
+	});
+
+	it("rejects missing or unknown named agents", () => {
+		const missing = getSubagentAgentRequirementErrorForTest(
+			{ name: "No agent", task: "Work" },
+			null,
+		);
+		assert.equal(missing?.details.error, "agent_required");
+
+		const unknown = getSubagentAgentRequirementErrorForTest(
+			{ name: "Unknown", task: "Work", agent: "does-not-exist" },
+			null,
+		);
+		assert.equal(unknown?.details.error, "agent_not_found");
+		assert.equal(unknown?.details.agent, "does-not-exist");
+	});
+
+	it("ignores frontmatter-governed call-time duplicates for named agents", () => {
+		const defs = {
+			path: "/tmp/reviewer.md",
+			mode: "interactive" as const,
+			blocking: false,
+			cwd: "./agents/reviewer",
+		};
+
+		const override = getSubagentAgentOverrideErrorForTest(
+			{
+				agent: "reviewer",
+				background: true,
+				blocking: true,
+				model: "gpt-x",
+				systemPrompt: "override",
+				skills: "debugger",
+				tools: "bash",
+				cwd: "packages/worker",
+			},
+			defs,
+		);
+
+		assert.equal(override, null);
+	});
+
+	it("allows redundant launch-time execution values that match named-agent frontmatter", () => {
+		const defs = {
+			path: "/tmp/reviewer.md",
+			mode: "background" as const,
+			blocking: false,
+		};
+
+		assert.equal(
+			getSubagentAgentOverrideErrorForTest(
+				{ agent: "reviewer", background: true, blocking: false },
+				defs,
+			),
+			null,
+		);
+	});
+
+	it("ignores launch-time fork overrides; only agent frontmatter controls session mode", () => {
+		const defs = {
+			path: "/tmp/reviewer.md",
+			mode: "interactive" as const,
+			blocking: false,
+			sessionMode: "lineage-only" as const,
+		};
+
+		assert.equal(
+			getSubagentAgentOverrideErrorForTest(
+				{ agent: "reviewer", fork: true },
+				defs,
+			),
+			null,
+		);
+		assert.equal(
+			resolveEffectiveSessionModeForTest({ agent: "reviewer" }, defs),
+			"lineage-only",
+		);
+		assert.equal(
+			resolveEffectiveSessionModeForTest(
+				{ agent: "reviewer", fork: true },
+				defs,
+			),
+			"lineage-only",
+		);
+	});
+
+	it("ignores launch-time async/blocking; only agent frontmatter controls sync policy", () => {
+		assert.equal(
+			resolveSubagentBlockingForTest({ async: false }, { async: true }),
+			false,
+		);
+		assert.equal(
+			resolveSubagentBlockingForTest({ async: true }, { async: false }),
+			true,
+		);
+		assert.equal(resolveSubagentBlockingForTest({ async: false }, null), false);
+		assert.equal(resolveSubagentBlockingForTest({}, { async: false }), true);
+		assert.equal(resolveSubagentBlockingForTest({}, { async: true }), false);
+		assert.equal(resolveSubagentBlockingForTest({}, null), false);
+		assert.equal(
+			resolveSubagentBlockingForTest({ blocking: true }, { blocking: false }),
+			false,
+		);
+		assert.equal(
+			resolveSubagentBlockingForTest({ blocking: false }, { blocking: true }),
+			true,
+		);
+		assert.equal(
+			resolveSubagentBlockingForTest({ async: true }, { blocking: true }),
+			true,
+		);
+
+		const blockingOverride = getSubagentAgentOverrideErrorForTest(
+			{ agent: "reviewer", async: false },
+			{ path: "/tmp/reviewer.md", mode: "interactive" },
+		);
+		assert.equal(blockingOverride, null);
+
+		const harmlessAsync = getSubagentAgentOverrideErrorForTest(
+			{ agent: "reviewer", async: true },
+			{ path: "/tmp/reviewer.md", mode: "interactive", async: true },
+		);
+		assert.equal(harmlessAsync, null);
+	});
+
+	it("ignores named-agent duplicate fields before session checks", async () => {
+		const dir = createTestDir();
+		const configDir = join(dir, "agent-root");
+		const agentsDir = join(configDir, "agents");
+		mkdirSync(agentsDir, { recursive: true });
+		process.env.PI_CODING_AGENT_DIR = configDir;
+		writeFileSync(
+			join(agentsDir, "reviewer.md"),
+			`---\nname: reviewer\nmode: interactive\nblocking: false\n---\n\nReviewer body.`,
+		);
+
+		const tools = new Map<string, any>();
+		const prevCwd = process.cwd();
+		try {
+			process.chdir(dir);
+			subagentsExtension({
+				on() {},
+				registerCommand() {},
+				registerMessageRenderer() {},
+				sendMessage() {},
+				registerTool(definition: any) {
+					tools.set(definition.name, definition);
+					return definition;
+				},
+			} as any);
+
+			const tool = tools.get("subagent");
+			assert.ok(tool);
+			await assert.rejects(
+				() =>
+					tool.execute(
+						"call-1",
+						{
+							name: "Review",
+							task: "check",
+							agent: "reviewer",
+							background: true,
+							cwd: "packages/worker",
+						},
+						undefined,
+						undefined,
+						{
+							cwd: dir,
+							hasUI: false,
+							ui: { setWidget() {} },
+							sessionManager: { getSessionFile: () => null },
+						},
+					),
+				{
+					message:
+						"No session file. Start pi with a persistent session to use subagents.",
+				},
+			);
+		} finally {
+			process.chdir(prevCwd);
+		}
+	});
+
+	it("resolves relative cwd values against the provided base", () => {
+		assert.equal(
+			resolveSubagentCwdForTest("roles/tester", "/tmp/custom-agent-root"),
+			"/tmp/custom-agent-root/roles/tester",
+		);
+		assert.equal(
+			resolveSubagentCwdForTest("/tmp/already-absolute", "/tmp/base"),
+			"/tmp/already-absolute",
+		);
+	});
+
+	it("prefers a target project's .pi/agent dir for subagent config isolation", () => {
+		const dir = createTestDir();
+		const target = join(dir, "target");
+		const localAgentDir = join(target, ".pi", "agent");
+		mkdirSync(localAgentDir, { recursive: true });
+
+		assert.equal(resolveSubagentConfigDir("target", dir), localAgentDir);
+		assert.equal(resolveSubagentConfigDir("missing", dir), null);
+		assert.equal(resolveSubagentConfigDir(null, target), localAgentDir);
+	});
+
+	it("stores child sessions under the child agent dir when cwd has its own .pi/agent", () => {
+		const dir = createTestDir();
+		const target = join(dir, "packages", "worker");
+		const localAgentDir = join(target, ".pi", "agent");
+		mkdirSync(localAgentDir, { recursive: true });
+
+		const parentSessionDir = join(dir, "parent-sessions");
+		const paths = resolveSubagentRuntimePathsForTest(
+			{ cwd: "packages/worker" },
+			null,
+			dir,
+			parentSessionDir,
+		);
+		assert.equal(paths.effectiveCwd, target);
+		assert.equal(paths.localAgentConfigDir, localAgentDir);
+		assert.equal(paths.effectiveAgentConfigDir, localAgentDir);
+		assert.equal(paths.targetCwdForSession, target);
+		assert.equal(
+			paths.sessionDir,
+			join(
+				localAgentDir,
+				"sessions",
+				`--${target.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`,
+			),
+		);
+	});
+
+	it("falls back to the global agent dir for child sessions when no local config exists", () => {
+		const dir = createTestDir();
+		const globalAgentDir = join(dir, "global-agent");
+		mkdirSync(globalAgentDir, { recursive: true });
+		const original = process.env.PI_CODING_AGENT_DIR;
+		process.env.PI_CODING_AGENT_DIR = globalAgentDir;
+
+		try {
+			const parentSessionDir = join(dir, "parent-sessions");
+			const paths = resolveSubagentRuntimePathsForTest(
+				{ cwd: "missing-child" },
+				null,
+				dir,
+				parentSessionDir,
+			);
+			assert.equal(paths.localAgentConfigDir, null);
+			assert.equal(paths.effectiveAgentConfigDir, globalAgentDir);
+			assert.equal(paths.targetCwdForSession, join(dir, "missing-child"));
+			assert.equal(paths.sessionDir, parentSessionDir);
+		} finally {
+			if (original == null) delete process.env.PI_CODING_AGENT_DIR;
+			else process.env.PI_CODING_AGENT_DIR = original;
+		}
+	});
+
+	it("writes system prompts to artifact files for CLI-safe routing", () => {
+		const dir = createTestDir();
+		const sessionId = "session-123";
+		const systemPrompt = `You are a specialist.\n\nQuotes: ' " $HOME`;
+		const artifactPath = writeSystemPromptArtifactForTest(
+			"Spec Agent",
+			systemPrompt,
+			{
+				cwd: dir,
+				sessionManager: { getSessionId: () => sessionId },
+			},
+		);
+
+		assert.equal(readFileSync(artifactPath, "utf8"), systemPrompt);
+		assert.ok(
+			artifactPath.startsWith(
+				join(
+					getSessionArtifactDir(dir, sessionId),
+					"context",
+					"spec-agent-sysprompt-",
+				),
+			),
+		);
+		assert.match(artifactPath, /\.md$/);
+	});
+
+	it("detects terminal assistant summaries only after final non-tool-use output", () => {
+		assert.equal(
+			getTerminalAssistantSummaryForTest([
+				{
+					type: "message",
+					message: {
+						role: "assistant",
+						stopReason: "stop",
+						content: [{ type: "text", text: "DONE" }],
+					},
+				},
+			] as any[]),
+			"DONE",
+		);
+
+		assert.equal(
+			getTerminalAssistantSummaryForTest([
+				{
+					type: "message",
+					message: {
+						role: "assistant",
+						stopReason: "toolUse",
+						content: [{ type: "text", text: "Not final" }],
+					},
+				},
+			] as any[]),
+			null,
+		);
+
+		assert.equal(
+			getTerminalAssistantSummaryForTest([
+				{
+					type: "message",
+					message: {
+						role: "assistant",
+						stopReason: "stop",
+						content: [{ type: "text", text: "Done" }],
+					},
+				},
+				{
+					type: "message",
+					message: {
+						role: "toolResult",
+						content: [{ type: "text", text: "later" }],
+					},
+				},
+			] as any[]),
+			null,
+		);
+	});
+
+	it("only reaps stable terminal summaries for auto-exit background agents", () => {
+		assert.equal(
+			shouldReapStableTerminalSummaryForTest({ autoExit: true }),
+			true,
+		);
+		assert.equal(
+			shouldReapStableTerminalSummaryForTest({ autoExit: false }),
+			false,
+		);
+		assert.equal(shouldReapStableTerminalSummaryForTest({}), false);
+	});
+
+	it("builds deterministic child session titles", () => {
+		assert.equal(
+			buildSubagentSessionTitleForTest({
+				name: "Auth Scout",
+				agent: "scout",
+				title: "Auth flow reconnaissance",
+				task: "Explore web app's auth\nReturn a concise report.",
+			}),
+			"[scout agent] Auth flow reconnaissance",
+		);
+
+		assert.equal(
+			buildSubagentSessionTitleForTest({
+				name: "Reviewer",
+				title: "Local diff bug review",
+				task: "Objective: Review the local diff for high-confidence bugs and summarize findings in detail",
+			}),
+			"[Reviewer agent] Local diff bug review",
+		);
+
+		assert.equal(
+			getSubagentDisplayTitleForTest({
+				title: "Fix Login Button On Mobile!!!",
+				task: "Task: respond with ok",
+			}),
+			"Fix login button on mobile",
+		);
+	});
+
+	it("does not pre-create lineage-only child session files", () => {
+		const dir = createTestDir();
+		const parent = join(dir, "parent.jsonl");
+		const child = join(dir, "child.jsonl");
+		writeFileSync(parent, `${JSON.stringify(SESSION_HEADER)}\n`);
+
+		seedSubagentSessionFileForTest("lineage-only", parent, child, dir);
+
+		assert.equal(existsSync(child), false);
+	});
+
+	it("throws for fork seeding without a known child context window", () => {
+		const dir = createTestDir();
+		const parent = join(dir, "parent.jsonl");
+		const child = join(dir, "child.jsonl");
+		writeFileSync(
+			parent,
+			`${[SESSION_HEADER, MODEL_CHANGE].map((entry) => JSON.stringify(entry)).join("\n")}\n`,
+		);
+
+		assert.throws(
+			() => seedSubagentSessionFileForTest("fork", parent, child, dir),
+			/child model context window is unknown/,
+		);
+	});
+
+});

@@ -118,18 +118,6 @@ export interface StartedSubagentToolDetails {
 	autoExit?: boolean;
 }
 
-export interface SyncSubagentToolDetails {
-	id?: string;
-	name?: string;
-	status?: string;
-	error?: string;
-	mode?: string;
-	deliveryState?: string;
-	autoExit?: boolean;
-	outputTokens?: number;
-	ids?: string[];
-}
-
 interface ListedSubagentInfo {
 	name: string;
 	description?: string;
