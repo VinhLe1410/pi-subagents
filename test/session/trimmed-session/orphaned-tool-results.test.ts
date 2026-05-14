@@ -11,7 +11,7 @@ import {
 	describe,
 	it,
 	writeTrimmedForkSession,
-	assertToolResultsHavePriorToolCalls,
+	assertNeutralizedToolMetadata,
 } from "./support.ts";
 
 describe("fork trim orphaned tool results", () => {
@@ -66,7 +66,7 @@ describe("fork trim orphaned tool results", () => {
 		const entries = lines.map((l) => JSON.parse(l));
 
 		// Should NOT contain any orphaned tool results
-		assertToolResultsHavePriorToolCalls(entries);
+		assertNeutralizedToolMetadata(entries);
 
 		// The orphaned tr-1 entry should be absent; only asst-2 (and header) should remain
 		const toolResults = entries.filter(
@@ -88,7 +88,7 @@ describe("fork trim orphaned tool results", () => {
 		const lines = written.split("\n").filter((l) => l.trim());
 		const entries = lines.map((l) => JSON.parse(l));
 
-		assertToolResultsHavePriorToolCalls(entries);
+		assertNeutralizedToolMetadata(entries);
 
 		const toolResults = entries.filter(
 			(e) => e.type === "message" && e.message?.role === "toolResult",
@@ -111,13 +111,19 @@ describe("fork trim orphaned tool results", () => {
 		const entries = lines.map((l) => JSON.parse(l));
 
 		// All tool results should have valid tool calls
-		assertToolResultsHavePriorToolCalls(entries);
+		assertNeutralizedToolMetadata(entries);
 
-		// Should still have the toolResult entry
-		const toolResults = entries.filter(
-			(e) => e.type === "message" && e.message?.role === "toolResult",
+		// The tool result should survive as a neutralized user message
+		// (original role was toolResult, converted to user by serializeEntry)
+		const userResults = entries.filter(
+			(e) => e.type === "message" && e.message?.role === "user",
 		);
-		assert.equal(toolResults.length, 1, "toolResult should be preserved when its toolCall is kept");
+		// One user for the original user message, one for the neutralized tool result
+		assert.ok(userResults.length >= 2, "tool result should survive as user message after neutralization");
+		const trTexts = userResults.map((e: any) =>
+			(e.message?.content?.[0]?.text ?? "")
+		).filter((t: string) => t === "file content");
+		assert.equal(trTexts.length, 1, "tool result text should appear as a user message");
 	});
 
 	it("handles mixed toolCall/toolUse formats in the same session", () => {
@@ -153,27 +159,14 @@ describe("fork trim orphaned tool results", () => {
 		const entries = lines2.map((l) => JSON.parse(l));
 
 		// No orphaned tool results
-		assertToolResultsHavePriorToolCalls(entries);
+		assertNeutralizedToolMetadata(entries);
 
-		// tr-1 (call_read, OpenAI style) should be kept with its toolCall
-		// tr-2 (call_find, Anthropic style) should be kept or dropped cleanly
-		const trEntries = entries.filter(
-			(e) => e.type === "message" && e.message?.role === "toolResult",
+		// All tool results should be neutralized (converted to user role, no toolCallId)
+		// No entry should have toolResult role or raw toolCall blocks
+		const survivorTR = entries.filter(
+			(e: any) => e.type === "message" && e.message?.role === "toolResult",
 		);
-		for (const tr of trEntries) {
-			const tcId = tr.message.toolCallId;
-			const hasToolCall = entries.some(
-				(e) =>
-					e.type === "message" &&
-					e.message?.role === "assistant" &&
-					e.message.content?.some(
-						(b: any) =>
-							(b.type === "toolCall" || b.type === "toolUse") &&
-							b.id === tcId,
-					),
-			);
-			assert.ok(hasToolCall, `toolResult(${tcId}) must have matching toolCall in kept entries`);
-		}
+		assert.equal(survivorTR.length, 0, "all tool results must be neutralized to user role");
 	});
 
 	it("skips multiple consecutive orphaned toolResults", () => {
@@ -207,7 +200,7 @@ describe("fork trim orphaned tool results", () => {
 		const entries = lines2.map((l) => JSON.parse(l));
 
 		// No orphaned tool results
-		assertToolResultsHavePriorToolCalls(entries);
+		assertNeutralizedToolMetadata(entries);
 
 		// Both tr-a and tr-b should be absent (they're orphaned without asst-1)
 		const toolResults = entries.filter(

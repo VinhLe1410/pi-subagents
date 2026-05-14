@@ -123,19 +123,20 @@ export function stopRunningSubagent(
 	clearSubagentShutdownTimer(running);
 	running.abortController?.abort();
 
-	if (!running.abortController) {
-		if (running.childProcess?.pid) {
-			try {
-				process.kill(-running.childProcess.pid, "SIGTERM");
-			} catch {
-				running.childProcess.kill("SIGTERM");
-			}
+	// Always kill the child process/surface regardless of abortController.
+	// abortController only stops the watcher polling loop; the child would
+	// otherwise keep running and deliver stale results via steer.
+	if (running.childProcess?.pid) {
+		try {
+			process.kill(-running.childProcess.pid, "SIGTERM");
+		} catch {
+			running.childProcess.kill("SIGTERM");
 		}
-		if (running.surface) {
-			try {
-				closeSurface(running.surface);
-			} catch {}
-		}
+	}
+	if (running.surface) {
+		try {
+			closeSurface(running.surface);
+		} catch {}
 	}
 }
 
@@ -215,7 +216,7 @@ export function deliverCompletedSubagentResultViaSteer(
 	} else {
 		content =
 			cached.exitCode !== 0
-				? `Sub-agent "${cached.name}" failed (exit code ${cached.exitCode}).\n\n${cached.summary}${sessionRef}`
+				? `Sub-agent "${cached.name}" failed (exit ${cached.exitCode}).\n\n${cached.summary}${sessionRef}`
 				: `Sub-agent "${cached.name}" completed (${formatElapsed(cached.elapsed)}).\n\n${cached.summary}${sessionRef}`;
 	}
 

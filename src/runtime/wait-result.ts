@@ -58,11 +58,9 @@ function getSubagentWaitSuccessResult(cached: CompletedSubagentResult) {
 				: cached.status === "cancelled"
 					? "was cancelled"
 					: "failed";
-		const exitText =
-			cached.status === "completed"
-				? `exit code ${cached.exitCode}`
-				: `status ${cached.status}`;
-		text = `Sub-agent "${cached.name}" ${verb} (${exitText}).\n\n${cached.summary}${sessionRef}`;
+		text = cached.status === "completed"
+				? `Sub-agent "${cached.name}" completed (${formatElapsed(cached.elapsed)}).\n\n${cached.summary}${sessionRef}`
+				: `Sub-agent "${cached.name}" ${verb} (exit ${cached.exitCode}).\n\n${cached.summary}${sessionRef}`;
 	}
 	return {
 		content: [{ type: "text", text }],
@@ -192,7 +190,9 @@ export async function waitForSubagentResult(
 
 		if (signal) {
 			if (signal.aborted) {
-				releaseSubagentWaitOwnership(runtime, running, ownerId);
+				runtime.stopRunningSubagent(running);
+				runtime.runningSubagents.delete(running.id);
+				runtime.updateWidget();
 				return getSubagentWaitErrorResult(
 					`Waiting for sub-agent "${running.name}" was interrupted.`,
 					"interrupted",
@@ -234,6 +234,9 @@ export async function waitForSubagentResult(
 
 		releaseSubagentWaitOwnership(runtime, running, ownerId);
 		if (outcome.kind === "interrupted") {
+			runtime.stopRunningSubagent(running);
+			runtime.runningSubagents.delete(running.id);
+			runtime.updateWidget();
 			return getSubagentWaitErrorResult(
 				`Waiting for sub-agent "${running.name}" was interrupted.`,
 				"interrupted",

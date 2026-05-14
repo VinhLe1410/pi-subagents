@@ -7,30 +7,42 @@ import { after, before, describe, it } from "node:test";
 import { writeTrimmedForkSession } from "../../../src/session/trimmed-session.ts";
 
 /**
- * Helper: create a minimal session JSONL file with one user message and one assistant message.
+ * Assert that forked output has properly neutralized tool call metadata.
+ *
+ * After fork trimming, all entries go through serializeEntry which:
+ * - Converts toolCall/toolUse content blocks to `[tool call: name]` text
+ * - Converts toolResult role messages to user role, stripping toolCallId
+ *
+ * No entry should have raw toolCall blocks or toolResult role after
+ * serializeEntry processes it.
  */
-function assertToolResultsHavePriorToolCalls(entries: any[]): void {
-	const seenToolCalls = new Set<string>();
+function assertNeutralizedToolMetadata(entries: any[]): void {
 	for (const entry of entries) {
 		if (entry.type !== "message") continue;
 		const message = entry.message;
+		// No raw toolCall/toolUse blocks should survive
 		if (message?.role === "assistant" && Array.isArray(message.content)) {
 			for (const block of message.content) {
-				if (block?.type === "toolCall" && typeof block.id === "string") {
-					seenToolCalls.add(block.id);
+				if (typeof block === "object" && block !== null) {
+					assert.notEqual(
+						block.type, "toolCall",
+						"forked assistant entries must not carry raw toolCall blocks",
+					);
+					assert.notEqual(
+						block.type, "toolUse",
+						"forked assistant entries must not carry raw toolUse blocks",
+					);
 				}
 			}
 		}
-		if (message?.role === "toolResult") {
-			assert.equal(
-				typeof message.toolCallId,
-				"string",
-				"toolResult must preserve string toolCallId",
-			);
-			assert.ok(
-				seenToolCalls.has(message.toolCallId),
-				`toolResult ${message.toolCallId} must match an earlier assistant toolCall`,
-			);
+		// No toolResult role should survive (converted to user)
+		assert.notEqual(
+			message?.role, "toolResult",
+			"forked entries must not carry toolResult role",
+		);
+		// No toolCallId should survive
+		if (message?.toolCallId !== undefined) {
+			assert.fail(`forked entries must not carry toolCallId (found on ${message.role || '?'})`);
 		}
 	}
 }
@@ -95,6 +107,6 @@ export {
 	describe,
 	it,
 	writeTrimmedForkSession,
-	assertToolResultsHavePriorToolCalls,
+	assertNeutralizedToolMetadata,
 	createMinimalSession,
 };

@@ -59,6 +59,8 @@ export {
 	resolveSubagentNoSessionForTest,
 	resolveSubagentRuntimePathsForTest,
 	resolveTaskSessionModeForTest,
+	requestSubagentBatchStopForTest,
+	getSubagentBatchStopMetadataForTest,
 	routeDetachedSubagentCompletionForTest,
 	seedSubagentSessionFileForTest,
 	setRunningSubagentForTest,

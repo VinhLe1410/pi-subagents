@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import type { AgentToolResult, ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "typebox";
@@ -12,6 +12,7 @@ import { buildResumePiArgs, buildShellChangeDirectoryPrefix, getResumeCwd, resol
 import type { ResumeToolDetails, RunningSubagent, SubagentResult } from "../types.ts";
 import { getEntryCount } from "../session/session.ts";
 import { getDoneSentinelFile, isResumeMode, readSubagentExtensionEntry, readSubagentLaunchMetadata } from "../session/session-files.ts";
+import { requestSubagentBatchStop, getSubagentBatchStopMetadata } from "../runtime/state.ts";
 import { formatTaskPreview, renderSubagentCompletionText } from "./message-renderers.ts";
 
 export interface ResumeToolRuntime {
@@ -48,15 +49,23 @@ export function registerSubagentResumeTool(
 			"\n" +
 			"The resumed helper may run in a visible terminal or hidden process depending on saved metadata or the mode argument. The tool usually returns after starting it; the helper's final report appears later in this chat when it finishes. Do not invent or assume resumed-session results before that later message appears.",
 		parameters: Type.Object({
-			sessionFile: Type.Optional(Type.String({ description: "Path to the session .jsonl file to resume" })),
+			sessionFile: Type.String({ description: "Path to the session .jsonl file to resume" }),
 			name: Type.Optional(Type.String({ description: "Display name for the terminal tab. Default: 'Resume'" })),
 			task: Type.Optional(Type.String({ description: "Optional follow-up task to send after resuming" })),
 			agent: Type.Optional(Type.String({ description: "Agent name for display. Use the original agent name from the session being resumed." })),
 			mode: Type.Optional(Type.Union([Type.Literal("background"), Type.Literal("interactive")], { description: "Explicit resume mode when launch metadata cannot be inferred. Defaults to the original mode when known, otherwise interactive fallback." })),
 		}),
 		renderCall(args, theme, context) {
-			const name = args.name && args.name !== "Resume" ? args.name : "subagent";
-			const agentBadge = args.agent ? theme.fg("dim", ` (${args.agent})`) : "";
+			let name = args.name && args.name !== "Resume" ? args.name : "subagent";
+			let agent = args.agent;
+			if (args.sessionFile) {
+				try {
+					const lm = readSubagentLaunchMetadata(args.sessionFile);
+					if (lm?.name) name = lm.name;
+					if (lm?.agent) agent = lm.agent;
+				} catch {}
+			}
+			const agentBadge = agent ? theme.fg("dim", ` (${agent})`) : "";
 			const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 			text.setText("▸ " + theme.fg("toolTitle", theme.bold("Resume")) + " " + theme.fg("accent", theme.bold(name)) + agentBadge + formatTaskPreview(args.task ?? "", context, theme));
 			return text;
@@ -82,9 +91,20 @@ export function registerSubagentResumeTool(
 			const explicitMode = isResumeMode(params.mode) ? params.mode : undefined;
 			const metadata = resolveResumeLaunchMetadata(sessionFile, explicitMode);
 			const launchMetadata = readSubagentLaunchMetadata(sessionFile);
-			const name = params.name ?? launchMetadata?.name ?? "Resume";
+			const name = launchMetadata?.name ?? metadata.name ?? "Resume";
+			const displayName = params.name ?? name;
 			if (metadata.mode === "interactive" && !runtime.isMuxAvailable()) {
 				throw new Error(`Subagents require a supported terminal multiplexer. ${muxSetupHint()}`);
+			}
+			// Guard: reject duplicate resume of the same session file
+			const normalizedFile = resolve(sessionFile);
+			for (const existing of runtime.runningSubagents.values()) {
+				if (existing.sessionFile && resolve(existing.sessionFile) === normalizedFile) {
+					throw new Error(
+						`Session "${existing.name}" (${existing.agent ?? "subagent"}) is already running with id ${existing.id}. ` +
+						"Use subagent_kill first or wait for it to complete.",
+					);
+				}
 			}
 			const entryCountBefore = getEntryCount(sessionFile);
 			const subagentDonePath = join(dirname(new URL(import.meta.url).pathname), "subagent-done.ts");
@@ -127,7 +147,7 @@ export function registerSubagentResumeTool(
 				child.stdout?.on("data", (chunk) => { running.stdoutTail = rememberTail(running.stdoutTail, chunk); });
 				child.stderr?.on("data", (chunk) => { running.stderrTail = rememberTail(running.stderrTail, chunk); });
 			} else {
-				const surface = createSurface(name);
+				const surface = createSurface(displayName);
 				await new Promise<void>((resolve) => setTimeout(resolve, runtime.getShellReadyDelayMs()));
 				const doneSentinelFile = getDoneSentinelFile(sessionFile, id);
 				const parts = getPiShellParts(buildResumePiArgs(sessionFile, "interactive"));
@@ -155,9 +175,11 @@ export function registerSubagentResumeTool(
 			runtime.wireSubagentSteerBack(pi, running, running.completionPromise);
 			const shouldAwait = (running.blocking ?? false) || running.async === false;
 			if (shouldAwait) return runtime.getLaunchedSubagentResult(running, signal);
+			requestSubagentBatchStop();
 			return {
 				content: [{ type: "text", text: `Session "${name}" resumed.` }],
 				details: { id, name, sessionFile, status: "started", mode: metadata.mode, modeSource: metadata.modeSource, agent: metadata.agent, deliveryState: "detached", parentClosePolicy: running.parentClosePolicy, blocking: running.blocking ?? false, async: running.async ?? !(running.blocking ?? false) },
+				...getSubagentBatchStopMetadata(),
 			};
 		},
 	});

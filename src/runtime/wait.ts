@@ -25,6 +25,8 @@ export interface WaitRuntime {
 		pi: Pick<ExtensionAPI, "sendMessage">,
 		cached: CompletedSubagentResult,
 	): CompletedSubagentResult;
+	stopRunningSubagent(running: RunningSubagent): void;
+	closeSurface(surface: string): void;
 }
 
 export { waitForSubagentResult } from "./wait-result.ts";

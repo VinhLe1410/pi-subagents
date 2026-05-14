@@ -10,5 +10,6 @@ import "./agents/ambient-runtime-paths.test.ts";
 import "./launch/fork-session.test.ts";
 import "./runtime/wait.test.ts";
 import "./runtime/shutdown-policy.test.ts";
+import "./runtime/resume-tool.test.ts";
 import "./launch/helpers.test.ts";
 import "./mux/mux.test.ts";

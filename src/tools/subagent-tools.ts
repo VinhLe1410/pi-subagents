@@ -13,7 +13,7 @@ import type { SubagentLaunchContext } from "../launch/prep.ts";
 import { isMuxAvailable, muxSetupHint, renameCurrentTab, renameWorkspace } from "../mux.ts";
 import { findRunningSubagent } from "../runtime/running-registry.ts";
 import type { RunningSubagent, SubagentParamsInput, SubagentResult } from "../types.ts";
-import { asSubagentToolResult, getCoordinatorOnlyTurnPrompt, markSubagentBatchBlocking } from "../runtime/state.ts";
+import { asSubagentToolResult, getCoordinatorOnlyTurnPrompt, getSubagentBatchStopMetadata, markSubagentBatchBlocking } from "../runtime/state.ts";
 import { getNoSessionSeedMode } from "../launch/seed-child-session.ts";
 import { isSetTabTitleToolEnabled } from "../agents/titles.ts";
 import { formatSubagentBatchLines, formatTaskPreview, renderSubagentCompletionText } from "./message-renderers.ts";
@@ -201,6 +201,7 @@ export function registerSubagentCoreTools(
 						name: (result.details as { name?: string } | undefined)?.name ?? prepared[index]?.child.name,
 					})),
 				},
+				...getSubagentBatchStopMetadata(),
 			});
 		},
 		renderCall(args, theme, context) {

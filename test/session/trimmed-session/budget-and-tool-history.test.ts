@@ -11,7 +11,7 @@ import {
 	describe,
 	it,
 	writeTrimmedForkSession,
-	assertToolResultsHavePriorToolCalls,
+	assertNeutralizedToolMetadata,
 	createMinimalSession,
 } from "./support.ts";
 
@@ -202,7 +202,7 @@ describe("writeTrimmedForkSession", () => {
 			.map((l) => JSON.parse(l));
 		const ids = entries.map((e) => e.id).filter(Boolean);
 
-		assertToolResultsHavePriorToolCalls(entries);
+		assertNeutralizedToolMetadata(entries);
 		assert.ok(
 			ids.includes("prior-result"),
 			"prior completed subagent result is preserved",
@@ -395,14 +395,16 @@ describe("writeTrimmedForkSession", () => {
 			(entry) => entry.id === "assistant-prior-launch",
 		);
 
-		assertToolResultsHavePriorToolCalls(entries);
+		assertNeutralizedToolMetadata(entries);
 		assert.ok(
 			priorAssistant,
 			"prior assistant entry remains to keep the parentId chain intact",
 		);
+		// After neutralization, raw toolCall IDs are converted to [tool call: name] text
+		const priorContent = JSON.stringify(priorAssistant.message.content);
 		assert.ok(
-			JSON.stringify(priorAssistant.message.content).includes("call-prior"),
-			"prior function call remains paired with its result",
+			priorContent.includes("[tool call: subagent]"),
+			"prior tool call is neutralized to [tool call: subagent] placeholder",
 		);
 		assert.ok(
 			JSON.stringify(entries).includes("PRIOR_RESULT_OK"),
@@ -411,8 +413,8 @@ describe("writeTrimmedForkSession", () => {
 		const priorResult = entries.find((entry) => entry.id === "prior-result");
 		assert.equal(
 			priorResult.message.toolCallId,
-			"call-prior",
-			"prior tool result keeps toolCallId for pi renderers and providers",
+			undefined,
+			"prior tool result has toolCallId stripped by neutralization",
 		);
 		assert.equal(
 			JSON.stringify(entries).includes("call-current"),

@@ -246,6 +246,42 @@ function findTrimStart(
 	return 0;
 }
 
+/**
+ * Neutralize tool call blocks in forked assistant messages to text placeholders.
+ *
+ * Forked children inherit the parent session's assistant messages verbatim,
+ * including raw tool call IDs that belong to the parent's provider context.
+ * These session-local identifiers have no place in the child session —
+ * pi's internal tool call state management should never see foreign IDs from
+ * a parent session that used a different provider, different model, or even
+ * the same provider under a different runtime instance.
+ *
+ * Replacing tool call blocks with simple text placeholders preserves the
+ * semantic information (which tool was called, and the conversation flow)
+ * without leaking provider-specific routing metadata across the fork boundary.
+ */
+function neutralizeToolCallBlocks(content: unknown[]): unknown[] {
+	if (!Array.isArray(content)) return content;
+	const result: unknown[] = [];
+	for (const block of content) {
+		if (!block || typeof block !== "object") {
+			result.push(block);
+			continue;
+		}
+		const b = block as Record<string, unknown>;
+		if (b.type === "toolCall" || b.type === "toolUse") {
+			const name = typeof b.name === "string" ? b.name : "unknown";
+			result.push({
+				type: "text",
+				text: `[tool call: ${name}]`,
+			});
+		} else {
+			result.push(block);
+		}
+	}
+	return result;
+}
+
 function serializeEntry(entry: ParsedEntry): string {
 	const parsedClone = structuredClone(entry.parsed);
 
@@ -264,6 +300,21 @@ function serializeEntry(entry: ParsedEntry): string {
 	// Parent usage is no longer valid after trimming. Keep a zero stub because the
 	// compiled renderer expects message.usage.input on copied entries.
 	msg.usage = zeroUsage();
+	// Neutralize inherited tool call blocks from the parent session.
+	// Tool call IDs are session-local routing tokens that belong to the
+	// parent's provider context. They must not leak into the child session,
+	// regardless of which provider either side uses.
+	if (msg.role === "assistant" && Array.isArray(msg.content)) {
+		msg.content = neutralizeToolCallBlocks(msg.content);
+	}
+	// Neutralize inherited tool results: strip the toolCallId and convert to
+	// a user message. The result text is preserved — the model sees the tool
+	// output in context — but the foreign tool call metadata is removed so
+	// pi never tries to resolve parent session IDs against child session state.
+	if (msg.role === "toolResult" && Array.isArray(msg.content)) {
+		msg.role = "user";
+		delete msg.toolCallId;
+	}
 	parsedClone.message = msg;
 	return JSON.stringify(parsedClone);
 }

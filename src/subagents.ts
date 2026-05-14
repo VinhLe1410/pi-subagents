@@ -71,6 +71,8 @@ import { registerSubagentMessageRenderers } from "./tools/message-renderers.ts";
 import { registerSubagentResumeTool } from "./tools/resume-tool.ts";
 import { registerSubagentCoreTools } from "./tools/subagent-tools.ts";
 export { markSubagentBatchBlocking as markSubagentBatchBlockingForTest } from "./runtime/state.ts";
+export { requestSubagentBatchStop as requestSubagentBatchStopForTest } from "./runtime/state.ts";
+export { getSubagentBatchStopMetadata as getSubagentBatchStopMetadataForTest } from "./runtime/state.ts";
 export * from "./testing/test-helpers.ts";
 
 export function loadAgentDefaults(
