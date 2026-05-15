@@ -25,9 +25,9 @@ describe("writeTrimmedForkSession", () => {
 		rmSync(tmpDir, { recursive: true, force: true });
 	});
 
-	it("treats decreasing usage checkpoints as reset boundaries", () => {
-		const sourcePath = join(tmpDir, "source-checkpoint-reset.jsonl");
-		const childPath = join(tmpDir, "child-checkpoint-reset.jsonl");
+	it("does not drop entries on decreasing usage checkpoints (context pruning drops are not segment boundaries)", () => {
+		const sourcePath = join(tmpDir, "source-checkpoint-noreset.jsonl");
+		const childPath = join(tmpDir, "child-checkpoint-noreset.jsonl");
 		const oldContext = "before reset";
 		const newContext = "after reset";
 		const lines = [
@@ -109,13 +109,16 @@ describe("writeTrimmedForkSession", () => {
 		});
 
 		const output = readFileSync(childPath, "utf8");
+		// Context-pruning drops do NOT create segment boundaries. The entries are
+		// still in the session file and should be inherited. Only zero-usage
+		// entries (nested fork artifacts) are real segment boundaries.
 		assert.ok(
-			!output.includes(oldContext),
-			"entries before a usage reset boundary should not be mixed into the fork",
+			output.includes(oldContext),
+			"pre-drop entries should be inherited (context pruning is not a segment boundary)",
 		);
 		assert.ok(
 			output.includes(newContext),
-			"latest checkpoint segment should be kept",
+			"post-drop entries should also be inherited",
 		);
 	});
 

@@ -29,6 +29,10 @@ interface ParsedEntry {
 interface TokenSegment {
 	entries: ParsedEntry[];
 	totalTokens: number;
+	/** Cumulative at the first successful assistant in this segment, so callers
+	 * can normalize totalTokens to segment-local values. Zero when the segment
+	 * starts at the beginning of the session (no prior resets). */
+	segmentBase: number;
 }
 
 function zeroUsage() {
@@ -134,10 +138,15 @@ function getLatestTokenSegment(
 	parentSessionFile: string,
 ): TokenSegment | undefined {
 	let sawAssistant = false;
-	let previousTokens = 0;
-	let previousAssistantIndex = -1;
 	let segmentStart = 0;
 	let totalTokens = 0;
+	// Cumulative at the first successful assistant in the current segment.
+	// Used to normalize totalTokens so it reflects only the token contribution
+	// of entries within the segment, not pre-segment content.
+	// Only meaningful when the segment starts after a reset boundary
+	// (segmentStart > 0); for the initial segment segmentBase stays 0.
+	let segmentBase = 0;
+	let foundSegmentStart = false;
 
 	for (let i = 0; i < entries.length; i++) {
 		const entry = entries[i];
@@ -158,25 +167,38 @@ function getLatestTokenSegment(
 			// Treat zero usage as a reset boundary so a nested fork can use later real
 			// child checkpoints without mixing them with inherited parent entries.
 			segmentStart = i + 1;
-			previousTokens = 0;
-			previousAssistantIndex = -1;
 			totalTokens = 0;
+			foundSegmentStart = false;
 			continue;
 		}
 
-		if (previousAssistantIndex >= 0 && tokens < previousTokens) {
-			// A drop means compaction or another context reset happened. Start a new
-			// independently-trimmable segment after the previous assistant.
-			segmentStart = previousAssistantIndex + 1;
+		// NOTE: decreasing cumulative checkpoints (tokens < previousTokens) from
+		// context-pruning extensions (pi-context-prune, API-ext pruning) do NOT
+		// create segment boundaries. The entries are still in the session file and
+		// should be inherited by the child. Only zeroed checkpoint entries
+		// (nested-fork artifacts) are real segment boundaries.
+
+		// Record the base cumulative of the first assistant in the segment.
+		// This is the session-wide cumulative at the segment boundary, used to
+		// normalize subsequent totals to segment-local values.
+		if (!foundSegmentStart) {
+			segmentBase = tokens;
+			foundSegmentStart = true;
 		}
 
-		previousTokens = tokens;
-		previousAssistantIndex = i;
 		totalTokens = tokens;
 	}
 
-	if (!sawAssistant || previousAssistantIndex < 0) return undefined;
-	return { entries: entries.slice(segmentStart), totalTokens };
+	if (!sawAssistant || totalTokens <= 0) return undefined;
+
+	// Only normalize when a reset (zero-usage or token-drop) created a segment
+	// boundary. For the initial unpruned segment, totalTokens stays session-wide
+	// so the budget comparison doesn't undercount pre-first-assistant entries.
+	// segmentBase must also be 0 in that case so findTrimStart doesn't
+	// normalize with a stale first-assistant checkpoint.
+	const hasReset = segmentStart > 0;
+	const segmentTokens = hasReset ? totalTokens - segmentBase : totalTokens;
+	return { entries: entries.slice(segmentStart), totalTokens: segmentTokens, segmentBase: hasReset ? segmentBase : 0 };
 }
 
 /**
@@ -215,6 +237,13 @@ function findTrimStart(
 	entries: ParsedEntry[],
 	totalTokens: number,
 	budget: number,
+	/**
+	 * Session-wide cumulative at the first assistant of this entry slice.
+	 * Subtracted from each assistant's cumulative to produce segment-local
+	 * token counts for the overflow comparison. Zero for segments with no
+	 * prior reset (the first assistant is at the beginning of the session).
+	 */
+	segmentBase = 0,
 ): number {
 	const overflow = totalTokens - budget;
 	let previousAssistantTokens = 0;
@@ -223,6 +252,11 @@ function findTrimStart(
 	for (let i = 0; i < entries.length; i++) {
 		const usage = getAssistantUsage(entries[i]);
 		if (!usage) continue;
+
+		// Normalize to segment-local: subtract the base cumulative so that
+		// the first assistant in the segment contributes 0 and subsequent
+		// assistants represent only the token growth within the segment.
+		const tokens = getCumulativeInputTokens(usage) - segmentBase;
 
 		if (previousAssistantTokens >= overflow) {
 			const start = previousAssistantIndex + 1;
@@ -239,7 +273,7 @@ function findTrimStart(
 			return adjusted;
 		}
 
-		previousAssistantTokens = getCumulativeInputTokens(usage);
+		previousAssistantTokens = tokens;
 		previousAssistantIndex = i;
 	}
 
@@ -372,7 +406,7 @@ export function writeTrimmedForkSession(
 		segment.totalTokens <= budget
 			? segment.entries
 			: segment.entries.slice(
-					findTrimStart(segment.entries, segment.totalTokens, budget),
+					findTrimStart(segment.entries, segment.totalTokens, budget, segment.segmentBase),
 				);
 	writeChildSession(
 		entriesToKeep,
