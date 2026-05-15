@@ -109,6 +109,51 @@ describe("ambient agents and runtime paths", () => {
 		}
 	});
 
+	it("applies child session titles to pre-seeded session headers", () => {
+		const previousTitle = process.env.PI_SUBAGENT_SESSION_TITLE;
+		const previousDisabled = process.env.PI_SUBAGENT_DISABLE_SESSION_TITLES;
+		const handlers = new Map<string, any>();
+		const header: { name?: string } = {};
+		let sessionName: string | undefined;
+		try {
+			process.env.PI_SUBAGENT_SESSION_TITLE = "[smoke agent] Fork title smoke";
+			delete process.env.PI_SUBAGENT_DISABLE_SESSION_TITLES;
+			subagentsExtension({
+				on(event: string, handler: any) {
+					handlers.set(event, handler);
+				},
+				registerCommand() {},
+				registerMessageRenderer() {},
+				registerTool() {},
+				sendMessage() {},
+				setSessionName(name: string) {
+					sessionName = name;
+				},
+			} as any);
+
+			handlers.get("session_start")(
+				{ type: "session_start", reason: "startup" },
+				{
+					cwd: process.cwd(),
+					hasUI: false,
+					ui: { setWidget() {} },
+					sessionManager: {
+						getHeader: () => header,
+						getSessionName: () => undefined,
+					},
+				},
+			);
+
+			assert.equal(header.name, "[smoke agent] Fork title smoke");
+			assert.equal(sessionName, "[smoke agent] Fork title smoke");
+		} finally {
+			if (previousTitle == null) delete process.env.PI_SUBAGENT_SESSION_TITLE;
+			else process.env.PI_SUBAGENT_SESSION_TITLE = previousTitle;
+			if (previousDisabled == null) delete process.env.PI_SUBAGENT_DISABLE_SESSION_TITLES;
+			else process.env.PI_SUBAGENT_DISABLE_SESSION_TITLES = previousDisabled;
+		}
+	});
+
 	it("rejects missing or unknown named agents", () => {
 		const missing = getSubagentAgentRequirementErrorForTest(
 			{ name: "No agent", task: "Work" },
@@ -267,6 +312,7 @@ describe("ambient agents and runtime paths", () => {
 						{
 							name: "Review",
 							task: "check",
+							title: "Review worker package",
 							agent: "reviewer",
 							background: true,
 							cwd: "packages/worker",

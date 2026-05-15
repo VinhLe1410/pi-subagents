@@ -146,7 +146,10 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 	function applySubagentSessionTitle(ctx: ExtensionContext) {
 		if (areSubagentSessionTitlesDisabled()) return;
 		const title = process.env.PI_SUBAGENT_SESSION_TITLE?.trim();
-		if (!title || ctx.sessionManager.getSessionName?.() === title) return;
+		if (!title) return;
+		const header = ctx.sessionManager.getHeader?.() as { name?: string } | undefined;
+		if (header && header.name !== title) header.name = title;
+		if (ctx.sessionManager.getSessionName?.() === title) return;
 		pi.setSessionName(title);
 	}
 

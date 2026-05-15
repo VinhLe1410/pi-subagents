@@ -10,7 +10,7 @@ import {
 	resolveSubagentNoSession,
 } from "../launch/policy.ts";
 import type { SubagentLaunchContext } from "../launch/prep.ts";
-import { isMuxAvailable, muxSetupHint, renameCurrentTab, renameWorkspace } from "../mux.ts";
+import { isMuxAvailable, renameCurrentTab, renameWorkspace } from "../mux.ts";
 import { findRunningSubagent } from "../runtime/running-registry.ts";
 import type { RunningSubagent, SubagentParamsInput, SubagentResult } from "../types.ts";
 import { asSubagentToolResult, getCoordinatorOnlyTurnPrompt, getSubagentBatchStopMetadata, markSubagentBatchBlocking } from "../runtime/state.ts";
@@ -72,6 +72,7 @@ function getRequestedChildren(params: SubagentToolParams): SubagentParamsInput[]
 }
 
 function getLaunchError(params: SubagentParamsInput, agentDefs: AgentDefaults | null, currentAgent: string | undefined): string | null {
+	if (!params.title?.trim()) return "Error: title is required for subagent launches. Provide a short sentence-case title for the child session/widget.";
 	const agentError = getSubagentAgentRequirementError(params, agentDefs);
 	if (agentError) return agentError.content[0]?.text ?? "Agent requirement error";
 	const toolsConfigError = getSubagentToolsConfigError(agentDefs?.tools, params.agent);
