@@ -40,8 +40,8 @@ describe("widget manager direct module tests", () => {
 		const widget = new SubagentWidgetManager(() => [running]);
 		const lines = widget.renderForTest(120).join("\n");
 
-		assert.match(lines, /^ ● Agents · 1 running · 1\.5s/m);
-		assert.match(lines, /^ └─ ◜ Research \[researcher\]/m);
+		assert.match(lines, /^● Agents · 1 running · 1\.5s/m);
+		assert.match(lines, /^└─ ◜ Research \[researcher\]/m);
 		assert.doesNotMatch(lines, /└─ [-\\|/] Research \[researcher\]/);
 		assert.match(lines, /1 tool use/);
 		assert.doesNotMatch(lines, /3 messages/);
@@ -51,7 +51,7 @@ describe("widget manager direct module tests", () => {
 		assert.doesNotMatch(lines, /\[detached\]/);
 	});
 
-	it("insets widget lines without exceeding the terminal width", () => {
+	it("renders widget lines without exceeding the terminal width", () => {
 		const running: RunningSubagent = {
 			id: "child-1",
 			name: "Research",
@@ -75,7 +75,6 @@ describe("widget manager direct module tests", () => {
 		const lines = widget.renderForTest(32);
 
 		assert.ok(lines.length > 0);
-		assert.ok(lines.every((line) => line.startsWith(" ")));
 		assert.ok(lines.every((line) => stripAnsi(line).length <= 32));
 	});
 

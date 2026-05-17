@@ -1,6 +1,5 @@
 /**
  * Extension loaded into sub-agents.
- * - Shows agent identity + available tools as a styled widget above the editor (toggle with Ctrl+J)
  * - Provides a `subagent_done` tool for autonomous agents to self-terminate
  */
 
@@ -159,12 +158,7 @@ export function installDeniedToolGuards(
 }
 
 export default function (pi: ExtensionAPI) {
-	const tui = optionalRequire("@earendil-works/pi-tui") as
-		| typeof import("@earendil-works/pi-tui")
-		| null;
 	const typebox = optionalRequire("typebox") as typeof import("typebox") | null;
-	const Box = tui?.Box;
-	const Text = tui?.Text;
 	const doneParams = typebox?.Type?.Object
 		? typebox.Type.Object({})
 		: { type: "object", properties: {}, additionalProperties: false };
@@ -185,76 +179,8 @@ export default function (pi: ExtensionAPI) {
 
 	const autoExit = process.env.PI_SUBAGENT_AUTO_EXIT === "1";
 	const isInteractive = !!process.env.PI_SUBAGENT_SURFACE;
-	let toolNames: string[] = [];
-	let denied: string[] = getDeniedToolNames(autoExit);
-	let expanded = false;
-	let latestCtx: { ui: { setWidget: Function } } | null = null;
+	const denied: string[] = getDeniedToolNames(autoExit);
 	let outputTokens = 0;
-
-	// Read subagent identity from env vars (set by parent orchestrator)
-	const subagentName = process.env.PI_SUBAGENT_NAME ?? "";
-	const subagentAgent = process.env.PI_SUBAGENT_AGENT ?? "";
-
-	function renderWidget(ctx: { ui: { setWidget: Function } }, _theme: unknown) {
-		if (!Box || !Text) return;
-		ctx.ui.setWidget(
-			"subagent-tools",
-			(_tui: unknown, theme: WidgetThemeLike) => {
-				const box = new Box(1, 0, (text: string) =>
-					theme.bg("toolSuccessBg", text),
-				);
-
-				const label = subagentAgent || subagentName;
-				const agentTag = label
-					? theme.bold(theme.fg("accent", `[${label}]`))
-					: "";
-
-				if (expanded) {
-					// Expanded: full tool list + denied
-					const countInfo = theme.fg("dim", ` — ${toolNames.length} available`);
-					const hint = theme.fg("muted", "  (Ctrl+J to collapse)");
-
-					const toolList = toolNames
-						.map((name: string) => theme.fg("dim", name))
-						.join(theme.fg("muted", ", "));
-
-					let deniedLine = "";
-					if (denied.length > 0) {
-						const deniedList = denied
-							.map((name: string) => theme.fg("error", name))
-							.join(theme.fg("muted", ", "));
-						deniedLine = `\n${theme.fg("muted", "denied: ")}${deniedList}`;
-					}
-
-					const content = new Text(
-						`${agentTag}${countInfo}${hint}\n${toolList}${deniedLine}`,
-						0,
-						0,
-					);
-					box.addChild(content);
-				} else {
-					// Collapsed: one-line summary
-					const countInfo = theme.fg("dim", ` — ${toolNames.length} tools`);
-					const deniedInfo =
-						denied.length > 0
-							? theme.fg("dim", " · ") +
-								theme.fg("error", `${denied.length} denied`)
-							: "";
-					const hint = theme.fg("muted", "  (Ctrl+J to expand)");
-
-					const content = new Text(
-						`${agentTag}${countInfo}${deniedInfo}${hint}`,
-						0,
-						0,
-					);
-					box.addChild(content);
-				}
-
-				return box;
-			},
-			{ placement: "aboveEditor" },
-		);
-	}
 
 	function requestShutdown(ctx: { shutdown: () => void }) {
 		setTimeout(() => {
@@ -262,7 +188,6 @@ export default function (pi: ExtensionAPI) {
 				ctx.shutdown();
 			} catch {
 				// Context may already be stale after session shutdown/reload.
-				// This is harmless — exit file was already written above.
 			}
 		}, 0);
 	}
@@ -275,27 +200,65 @@ export default function (pi: ExtensionAPI) {
 		writeFileSync(exitFile, JSON.stringify(payload), "utf8");
 	}
 
-	function refreshDeniedTools(ctx?: { ui: { setWidget: Function } } | null) {
-		if (ctx) latestCtx = ctx;
-		denied = getDeniedToolNames(autoExit);
-		toolNames = filterToolNames(pi.getActiveTools(), denied);
+	const subagentName = process.env.PI_SUBAGENT_NAME ?? "";
+	const subagentAgent = process.env.PI_SUBAGENT_AGENT ?? "";
+
+	function enforceDeniedTools() {
+		const deniedNames = getDeniedToolNames(autoExit);
+		const allowedTools = filterToolNames(pi.getActiveTools(), deniedNames);
 		try {
-			pi.setActiveTools(toolNames);
-		} catch {}
-		if (latestCtx) renderWidget(latestCtx, null);
+			pi.setActiveTools(allowedTools);
+		} catch {
+			// Tools may not be ready yet
+		}
 	}
 
-	// Show widget + status bar on session start
 	pi.on("session_start", (_event, ctx) => {
 		applySubagentSessionTitle(ctx, pi);
-		refreshDeniedTools(ctx);
-		setTimeout(() => refreshDeniedTools(), 0);
-		setTimeout(() => refreshDeniedTools(), 250);
+
+		enforceDeniedTools();
+		setTimeout(() => enforceDeniedTools(), 0);
+		setTimeout(() => enforceDeniedTools(), 250);
+
+		// Register a widget callback so pi can re-render on resize
+		ctx.ui.setWidget(
+			"subagent-tools",
+			(_tui: unknown, theme: WidgetThemeLike) => ({
+				render: () => {
+					const avail = Math.max(1, ((_tui as { terminal?: { columns?: number } })?.terminal?.columns ?? 80) - 1);
+
+					// Build visible text first, truncate BEFORE ANSI wrapping
+					const visibleLabel = subagentAgent
+						? `${subagentName} (${subagentAgent})`
+						: subagentName;
+					const visiblePrefix = "▸ Agent ";
+
+					let displayLabel = visibleLabel;
+					if (visiblePrefix.length + visibleLabel.length > avail) {
+						const maxLabel = Math.max(0, avail - visiblePrefix.length - 1);
+						displayLabel = visibleLabel.slice(0, maxLabel) + "…";
+					}
+
+					// Split truncated label into name and suffix for different styling
+					const nameLen = Math.min(subagentName.length, displayLabel.length);
+					const styledName = theme.bold(displayLabel.slice(0, nameLen));
+					const styledSuffix =
+						nameLen < displayLabel.length
+							? theme.fg("muted", displayLabel.slice(nameLen))
+							: "";
+
+					const line =
+						`${theme.fg("accent", "▸")} ${theme.fg("accent", "Agent")} ${styledName}${styledSuffix}`;
+					return [line];
+				},
+				invalidate: () => {},
+			}),
+			{ placement: "aboveEditor" },
+		);
 	});
 
-	pi.on("before_agent_start", (_event, ctx) => {
-		refreshDeniedTools(ctx);
-		return undefined;
+	pi.on("before_agent_start", () => {
+		enforceDeniedTools();
 	});
 
 	pi.on("message_end", (event) => {
@@ -370,15 +333,6 @@ export default function (pi: ExtensionAPI) {
 			requestShutdown(ctx);
 		});
 	}
-
-	// Toggle expand/collapse with Ctrl+J
-	pi.registerShortcut("ctrl+j", {
-		description: "Toggle subagent tools widget",
-		handler: (ctx) => {
-			expanded = !expanded;
-			renderWidget(ctx, null);
-		},
-	});
 
 	// caller_ping is registered for most agents as an escape hatch.
 	// Only interactive agents with autoExit: false don't get it —

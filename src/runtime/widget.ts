@@ -12,7 +12,7 @@ import type {
 } from "../types.ts";
 
 const SPINNER = ["◜", "◠", "◝", "◞", "◡", "◟"];
-const WIDGET_HORIZONTAL_PADDING = 1;
+
 const TOOL_DISPLAY: Record<string, string> = {
 	read: "reading",
 	bash: "running command",
@@ -357,12 +357,9 @@ export class SubagentWidgetManager {
 		theme: WidgetThemeLike,
 	): string[] {
 		const agents = [...this.getAgents()];
-		const agentName = process.env.PI_SUBAGENT_NAME?.trim();
-		const agentFile = process.env.PI_SUBAGENT_AGENT?.trim();
-		const isChildSession = !!agentName;
 
-		// If no running subagents and not a child session, show nothing
-		if (agents.length === 0 && !isChildSession) return [];
+		// If no running subagents, show nothing
+		if (agents.length === 0) return [];
 
 		const width = tui?.terminal?.columns ?? 80;
 		const lines: string[] = [];
@@ -425,44 +422,19 @@ export class SubagentWidgetManager {
 				const activity = agent.activity ?? "starting…";
 				lines.push(
 					theme.fg("dim", childConnector) +
-						theme.fg("dim", `  ${activity}`),
+					theme.fg("dim", `  ${activity}`),
 				);
 			}
-
-			// Blank line between subagent list and self-agent info
-			if (isChildSession) lines.push("");
 		}
 
-		// Show self-agent info (if this is a child session)
-		if (isChildSession) {
-			const agentSuffix = agentFile
-				? ` ${theme.fg("muted", `(${agentFile})`)}`
-				: "";
-			lines.push(
-				theme.fg("toolTitle", "▸") +
-					" " +
-					theme.fg("toolTitle", "Agent") +
-					": " +
-					theme.bold(agentName) +
-					agentSuffix,
-			);
-		}
-
-		const leftPadding = " ".repeat(
-			Math.min(WIDGET_HORIZONTAL_PADDING, width),
-		);
-		const contentWidth = Math.max(0, width - leftPadding.length);
-
-		return lines.map(
-			(line) => `${leftPadding}${truncateToWidth(line, contentWidth)}`,
-		);
+		return lines.map((line) => truncateToWidth(line, Math.max(1, width - 4)));
 	}
 
 	private renderWidgetNow(): void {
 		if (!this.latestCtx?.hasUI) return;
+		if (!this.widgetTui) return; // Skip if tui not ready — next tick will re-register
 		const theme = this.latestCtx.ui.theme as WidgetThemeLike;
-		const tui = this.widgetTui ?? ({ terminal: { columns: 80 } } as WidgetTuiLike);
-		const lines = this.renderSubagentWidget(tui, theme);
+		const lines = this.renderSubagentWidget(this.widgetTui, theme);
 		this.latestCtx.ui.setWidget(
 			"subagent-status",
 			lines.length ? lines : undefined,
