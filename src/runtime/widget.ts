@@ -23,8 +23,8 @@ const TOOL_DISPLAY: Record<string, string> = {
 	ls: "listing",
 };
 
-interface RenderCapableTui extends WidgetTuiLike {
-	requestRender?(): void;
+function getTerminalColumns(): number {
+	return process.stdout.columns ?? 80;
 }
 
 function formatCompactCount(count: number): string {
@@ -86,8 +86,6 @@ export class SubagentWidgetManager {
 	private latestCtx: ExtensionContext | null = null;
 	private widgetInterval: ReturnType<typeof setInterval> | null = null;
 	private widgetFrame = 0;
-	private widgetRegistered = false;
-	private widgetTui: RenderCapableTui | null = null;
 	private readonly getAgents: () => Iterable<RunningSubagent>;
 
 	constructor(getAgents: () => Iterable<RunningSubagent>) {
@@ -99,19 +97,11 @@ export class SubagentWidgetManager {
 			clearInterval(this.widgetInterval);
 			this.widgetInterval = null;
 		}
-		this.latestCtx = null;
 		this.widgetFrame = 0;
-		this.widgetRegistered = false;
-		this.widgetTui = null;
 	}
 
 	attachContext(ctx: ExtensionContext): void {
-		if (this.latestCtx !== ctx) {
-			this.latestCtx = ctx;
-			this.widgetRegistered = false;
-			this.widgetTui = null;
-		}
-		this.ensureWidgetRegistered();
+		this.latestCtx = ctx;
 		this.update();
 	}
 
@@ -162,7 +152,6 @@ export class SubagentWidgetManager {
 	}
 
 	startRefresh(): void {
-		this.ensureWidgetRegistered();
 		this.update();
 		if (this.widgetInterval) return;
 		this.widgetInterval = setInterval(() => {
@@ -361,7 +350,7 @@ export class SubagentWidgetManager {
 		// If no running subagents, show nothing
 		if (agents.length === 0) return [];
 
-		const width = tui?.terminal?.columns ?? 80;
+		const width = tui?.terminal?.columns ?? getTerminalColumns();
 		const lines: string[] = [];
 
 		// Show running subagents section
@@ -432,33 +421,15 @@ export class SubagentWidgetManager {
 
 	private renderWidgetNow(): void {
 		if (!this.latestCtx?.hasUI) return;
-		if (!this.widgetTui) return; // Skip if tui not ready — next tick will re-register
 		const theme = this.latestCtx.ui.theme as WidgetThemeLike;
-		const lines = this.renderSubagentWidget(this.widgetTui, theme);
+		const lines = this.renderSubagentWidget(
+			{ terminal: { columns: getTerminalColumns() } },
+			theme,
+		);
 		this.latestCtx.ui.setWidget(
 			"subagent-status",
 			lines.length ? lines : undefined,
 			{ placement: "aboveEditor" },
 		);
-	}
-
-	private ensureWidgetRegistered(): void {
-		if (!this.latestCtx?.hasUI || this.widgetRegistered) return;
-
-		this.latestCtx.ui.setWidget(
-			"subagent-status",
-			(tui: WidgetTuiLike, theme: WidgetThemeLike) => {
-				this.widgetTui = tui as RenderCapableTui;
-				return {
-					render: () => this.renderSubagentWidget(tui, theme),
-					invalidate: () => {
-						this.widgetRegistered = false;
-						this.widgetTui = null;
-					},
-				};
-			},
-			{ placement: "aboveEditor" },
-		);
-		this.widgetRegistered = true;
 	}
 }
