@@ -82,6 +82,7 @@ export {
 	shutdownSubagentsForTest,
 	waitForSubagentForTest,
 	writeSubagentLaunchMetadataEntryForTest,
+	writeSubagentModelStateEntriesForTest,
 	writeSystemPromptArtifactForTest,
 } from "../../src/subagents.ts";
 export {

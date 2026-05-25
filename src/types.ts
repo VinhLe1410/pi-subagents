@@ -13,6 +13,7 @@ export interface SubagentParamsInput {
 	agent: string;
 	systemPrompt?: string;
 	model?: string;
+	thinking?: string;
 	skills?: string;
 	injectSkills?: string;
 	tools?: string;

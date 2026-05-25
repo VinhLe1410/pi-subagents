@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
 	assert,
 	afterEach,
@@ -20,6 +23,7 @@ const testRuntime = {
 	watchSubagent: async () => ({ name: "", task: "", summary: "", exitCode: 0, elapsed: 0 }),
 	getWatcherSignal: (_r: any, c: AbortController) => c.signal,
 	startWidgetRefresh: () => {},
+	getContextWindow: () => undefined,
 	runningSubagents: new Map(),
 	pi: { on() {} } as any,
 	wireSubagentSteerBack: () => {},
@@ -170,6 +174,61 @@ describe("subagents-view overlay", () => {
 			const text = lines.map(stripAnsi).join("\n");
 			assert.ok(text.includes("scout"), `Expected "scout" in:\n${text}`);
 			overlay.dispose();
+		});
+
+		it("shows frontmatter and override model fields in running item details", () => {
+			const dir = mkdtempSync(join(tmpdir(), "subagents-overlay-"));
+			const sessionFile = join(dir, "child.jsonl");
+			writeFileSync(sessionFile, JSON.stringify({
+				type: "custom",
+				customType: "pi-subagents_launch_metadata",
+				data: {
+					version: 1,
+					timestamp: "2026-05-24T00:00:00.000Z",
+					name: "scout",
+					mode: "background",
+					sessionMode: "lineage-only",
+					parentClosePolicy: "terminate",
+					async: false,
+					model: "zai-messages/glm-5.1",
+					modelRef: "zai-messages/glm-5.1",
+					definitionModel: "openai-rift/gpt-5.4-mini",
+					definitionThinking: "high",
+					allowModelOverride: true,
+					modelSource: "resume-override",
+					denyTools: [],
+					noContextFiles: false,
+					noSession: false,
+					boundarySystemPrompt: false,
+				},
+			}) + "\n");
+			setRunningSubagentForTest({
+				id: "test-override",
+				name: "scout",
+				task: "Explore codebase",
+				mode: "background",
+				executionState: "running",
+				deliveryState: "detached",
+				parentClosePolicy: "terminate",
+				startTime: Date.now(),
+				sessionFile,
+			} as any);
+
+			const overlay = createOverlay();
+			try {
+				simulateKey(overlay, "i");
+				const lines = renderLines(overlay);
+				const text = lines.map(stripAnsi).join("\n");
+				assert.ok(text.includes("model"), text);
+				assert.ok(text.includes("allow-model-override"), text);
+				assert.ok(text.includes("override-model"), text);
+				assert.ok(text.includes("openai-rift/gpt-5.4-mini"), text);
+				assert.ok(text.includes("zai-messages/glm-5.1"), text);
+				assert.ok(!text.includes("model-source"), text);
+				assert.ok(!text.includes("requested-model-override"), text);
+			} finally {
+				overlay.dispose();
+			}
 		});
 
 		it("highlights the selected item with inverse video", () => {
@@ -404,6 +463,7 @@ const mockRuntime = {
 	watchSubagent: async () => ({ name: "", task: "", summary: "", exitCode: 0, elapsed: 0 }),
 	getWatcherSignal: (_r: any, c: AbortController) => c.signal,
 	startWidgetRefresh: () => {},
+	getContextWindow: () => undefined,
 	runningSubagents: new Map(),
 	pi: { on() {} } as any,
 	wireSubagentSteerBack: () => {},
@@ -424,7 +484,7 @@ describe("subagents-view registration", () => {
 			registerCommand(name: string, opts: any) {
 				commands.push({ name, description: opts.description });
 			},
-			registerShortcut(shortcut: string, opts: any) {
+			registerShortcut(_shortcut: string, _opts: any) {
 				shortcutRegistered = true;
 			},
 			on() {},
@@ -441,11 +501,11 @@ describe("subagents-view registration", () => {
 		const { registerSubagentsView } = await import("../../src/tools/subagents-view.ts");
 
 		registerSubagentsView({
-			registerCommand(name: string, opts: any) {
+			registerCommand(_name: string, opts: any) {
 				// Simulate running the command handler
 				opts.handler("", {
 					ui: {
-						notify: (msg: string, type: string) => {
+						notify: (msg: string, _type: string) => {
 							notifications.push(msg);
 						},
 						custom: async () => { /* noop — won't be called when empty state hits */ },

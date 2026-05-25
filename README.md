@@ -128,6 +128,7 @@ For a fuller example of the intended style, see the [scout agent gist by edxeth]
 | `enabled` | `true` | Set `false` to hide and block the agent |
 | `model` | Pi default | Child model, including optional thinking suffix. When unset, the child inherits the parent's model. |
 | `thinking` | model default | Child thinking level. When unset, the child inherits the parent's thinking level. |
+| `allow-model-override` | `true` | Whether the parent Pi session may launch or resume this agent with a different model or thinking level. Leave it alone if you want to choose models per task from the parent chat. Set `false` when this agent should always use the model written in its file. |
 | `cwd` | parent cwd | Working directory for the child |
 | `extensions` | `all` | Extension availability: `all`, `none`, or a comma-separated allowlist for the child |
 | `tools` | `all` | Built-in Pi tools: `all`, `none`, or a comma-separated subset of `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls` |
@@ -146,7 +147,7 @@ For a fuller example of the intended style, see the [scout agent gist by edxeth]
 | `mode` | `interactive` | `interactive` pane or `background` process |
 | `parent-close-policy` | `terminate` | What happens to the child when the parent session exits: `terminate` (kill) or `continue` (leave running) |
 
-Named-agent frontmatter wins over duplicate launch-time fields such as `model`, `tools`, `cwd`, and `mode`. The parent can still request `async: false` to wait, though agent frontmatter with `blocking: true` overrides. Parent can request `fork: true` for a forked launch.
+Named-agent frontmatter wins over duplicate launch-time fields such as `tools`, `cwd`, and `mode`. `model` and `thinking` are different: while you are in a parent Pi session, you can ask Pi to run a subagent with a specific model or thinking level for that one launch or resume. That works by default. If an agent file sets `allow-model-override: false`, Pi ignores those per-launch model choices and uses the model from the agent file, or the inherited Pi model if the file does not name one. Use that opt-out for agents whose quality, cost, or safety depends on a specific model. The parent can still request `async: false` to wait, though agent frontmatter with `blocking: true` overrides. Parent can request `fork: true` for a forked launch.
 
 ## Ambient awareness
 

@@ -30,6 +30,7 @@ import {
 	resolveEffectiveSessionMode,
 	writeSubagentLaunchMetadataEntry,
 	writeSubagentLaunchMetadataEntryWhenReady,
+	writeSubagentModelStateEntries,
 } from "../session/session-files.ts";
 import { seedPreparedSubagentSession, getNoSessionSeedMode } from "./seed-child-session.ts";
 import { writeTaskArtifact } from "./prompt-artifacts.ts";
@@ -79,7 +80,7 @@ export async function launchBackgroundSubagent(
 		...getPreparedSessionLaunchArgs(prepared),
 		...getPreparedExtensionLaunchArgs(prepared, subagentDonePath),
 	];
-	const { boundarySystemPrompt } = seedPreparedSubagentSession(
+	const { seedMode, boundarySystemPrompt } = seedPreparedSubagentSession(
 		prepared,
 		params,
 		ctx,
@@ -111,6 +112,7 @@ export async function launchBackgroundSubagent(
 		systemPrompt,
 	);
 	if (existsSync(prepared.subagentSessionFile)) {
+		if (seedMode === "fork") writeSubagentModelStateEntries(prepared.subagentSessionFile, launchMetadata);
 		writeSubagentLaunchMetadataEntry(prepared.subagentSessionFile, launchMetadata);
 	}
 	args.push(...getSubagentToolLaunchArgs(prepared.effectiveTools, prepared.denySet));

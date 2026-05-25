@@ -40,10 +40,14 @@ export interface PersistedSubagentLaunchMetadata {
 	model?: string;
 	thinking?: string;
 	modelRef?: string;
+	definitionModel?: string;
+	definitionThinking?: string;
 	allowModelOverride?: boolean;
 	modelSource?: "parent" | "agent" | "launch-override" | "resume-override";
 	requestedModelOverride?: string;
+	requestedThinkingOverride?: string;
 	ignoredModelOverride?: string;
+	ignoredThinkingOverride?: string;
 	tools?: string;
 	skills?: string;
 	injectSkills?: string;
@@ -200,6 +204,44 @@ export function writeSubagentExtensionEntry(
 	writeFileSync(
 		`${path}.ext`,
 		`${JSON.stringify({ extensions, timestamp: new Date().toISOString() })}\n`,
+	);
+}
+
+export function writeSubagentModelStateEntries(
+	path: string,
+	metadata: Pick<PersistedSubagentLaunchMetadata, "model" | "thinking">,
+): void {
+	if (!metadata.model) return;
+	const slash = metadata.model.indexOf("/");
+	if (slash === -1) return;
+	mkdirSync(dirname(path), { recursive: true });
+	if (!existsSync(path)) writeHeaderOnlySubagentSessionFile(path);
+	let parentId = getLastSessionEntryId(path);
+	const modelId = randomUUID().slice(0, 8);
+	appendFileSync(
+		path,
+		`${JSON.stringify({
+			type: "model_change",
+			id: modelId,
+			parentId,
+			timestamp: new Date().toISOString(),
+			provider: metadata.model.slice(0, slash),
+			modelId: metadata.model.slice(slash + 1),
+		})}\n`,
+		"utf8",
+	);
+	parentId = modelId;
+	if (!metadata.thinking) return;
+	appendFileSync(
+		path,
+		`${JSON.stringify({
+			type: "thinking_level_change",
+			id: randomUUID().slice(0, 8),
+			parentId,
+			timestamp: new Date().toISOString(),
+			thinkingLevel: metadata.thinking,
+		})}\n`,
+		"utf8",
 	);
 }
 

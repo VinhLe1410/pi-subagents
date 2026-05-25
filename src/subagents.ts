@@ -419,6 +419,7 @@ Your most important job is synthesis: reading sub-agent outputs, understanding t
 		startWidgetRefresh,
 		getLaunchedSubagentResult,
 		runningSubagents,
+		getContextWindow: (modelRef) => widgetManager.resolveModelContextWindow(modelRef),
 		modelRegistry: {
 			getAvailable: () => latestContext?.modelRegistry.getAvailable() ?? [],
 		},
@@ -438,6 +439,7 @@ Your most important job is synthesis: reading sub-agent outputs, understanding t
 		watchSubagent,
 		getWatcherSignal,
 		startWidgetRefresh,
+		getContextWindow: (modelRef) => widgetManager.resolveModelContextWindow(modelRef),
 		runningSubagents,
 		pi,
 		wireSubagentSteerBack,

@@ -39,6 +39,7 @@ import {
 	resolveEffectiveSessionMode,
 	writeSubagentLaunchMetadataEntry,
 	writeSubagentLaunchMetadataEntryWhenReady,
+	writeSubagentModelStateEntries,
 } from "../session/session-files.ts";
 import { getNoSessionSeedMode, seedPreparedSubagentSession } from "./seed-child-session.ts";
 import { writeSystemPromptArtifact, writeTaskArtifact } from "./prompt-artifacts.ts";
@@ -116,7 +117,7 @@ export async function launchInteractiveSubagent(
 	if (skillInjection) fullTask = `${skillInjection}\n\n${fullTask}`;
 
 	const parts = getPiShellParts(getPreparedSessionLaunchArgs(prepared));
-	const { boundarySystemPrompt: shouldWriteChildBoundary } =
+	const { seedMode, boundarySystemPrompt: shouldWriteChildBoundary } =
 		seedPreparedSubagentSession(prepared, params, ctx, sessionMode, noSession);
 	const subagentDonePath = join(dirname(dirname(fileURLToPath(import.meta.url))), "tools", "subagent-done.ts");
 	for (const arg of getPreparedExtensionLaunchArgs(prepared, subagentDonePath)) {
@@ -150,6 +151,7 @@ export async function launchInteractiveSubagent(
 		systemPrompt,
 	);
 	if (existsSync(prepared.subagentSessionFile)) {
+		if (seedMode === "fork") writeSubagentModelStateEntries(prepared.subagentSessionFile, launchMetadata);
 		writeSubagentLaunchMetadataEntry(prepared.subagentSessionFile, launchMetadata);
 	}
 	for (const arg of getSubagentToolLaunchArgs(prepared.effectiveTools, prepared.denySet)) {

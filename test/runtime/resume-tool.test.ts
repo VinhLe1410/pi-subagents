@@ -14,6 +14,7 @@ import {
 	getSubagentBatchStopMetadataForTest,
 } from "../support/index.ts";
 import { resolve } from "node:path";
+import { resumeSubagentSession } from "../../src/runtime/resume-service.ts";
 
 describe("subagent_resume name identity", () => {
 	it("resolves canonical name from persisted launch metadata", async () => {
@@ -160,6 +161,72 @@ describe("subagent_resume coordinator-only-turn", () => {
 });
 
 describe("subagent_resume same-session guard", () => {
+	it("does not persist resume override metadata before duplicate-session guard", async () => {
+		const dir = createTestDir();
+		const sessionFile = join(dir, "child.jsonl");
+		writeFileSync(
+			sessionFile,
+			JSON.stringify({ type: "session", version: 3, id: "s", timestamp: new Date().toISOString(), cwd: dir }) + "\n",
+		);
+		await writeSubagentLaunchMetadataEntryForTest(sessionFile, {
+			version: 1,
+			timestamp: "2026-05-08T00:00:00.000Z",
+			name: "scout",
+			agent: "scout",
+			mode: "background",
+			sessionMode: "lineage-only",
+			autoExit: true,
+			parentClosePolicy: "terminate",
+			async: true,
+			model: "zai-messages/glm-5.1",
+			modelRef: "zai-messages/glm-5.1",
+			allowModelOverride: true,
+			denyTools: [],
+			noContextFiles: false,
+			noSession: false,
+			agentConfigDir: dir,
+			cwd: dir,
+			boundarySystemPrompt: false,
+		});
+
+		const runningSubagents = new Map<string, any>();
+		runningSubagents.set("existing-001", {
+			id: "existing-001",
+			name: "scout",
+			agent: "scout",
+			sessionFile,
+		});
+
+		await assert.rejects(
+			() => resumeSubagentSession(
+				{ sessionFile, model: "zai-messages/glm-5-turbo", thinking: "off" },
+				{
+					isMuxAvailable: () => true,
+					getShellReadyDelayMs: () => 0,
+					waitForInteractivePrompt: async () => {},
+					watchBackgroundSubagent: async () => ({ name: "", task: "", summary: "", exitCode: 0, elapsed: 0 }),
+					watchSubagent: async () => ({ name: "", task: "", summary: "", exitCode: 0, elapsed: 0 }),
+					getWatcherSignal: (_running: any, controller: AbortController) => controller.signal,
+					startWidgetRefresh: () => {},
+					getContextWindow: () => undefined,
+					runningSubagents,
+					modelRegistry: {
+						getAvailable: () => [
+							{ provider: "zai-messages", id: "glm-5-turbo" },
+							{ provider: "zai-messages", id: "glm-5.1" },
+						],
+					},
+				},
+			),
+			/already running/,
+		);
+
+		const metadata = readSubagentLaunchMetadataForTest(sessionFile);
+		assert.equal(metadata?.modelRef, "zai-messages/glm-5.1");
+		assert.equal(metadata?.requestedModelOverride, undefined);
+		assert.equal(metadata?.requestedThinkingOverride, undefined);
+	});
+
 	it("detects duplicate sessionFile in running subagents", () => {
 		const dir = createTestDir();
 		const sessionFile = join(dir, "child.jsonl");

@@ -173,7 +173,7 @@ export function resolveAvailableModelRef(
 		if (!match) throw new Error(`Unknown model override '${model}'.`);
 	}
 	const match = available.find((candidate) => `${candidate.provider}/${candidate.id}` === resolved);
-	if (thinking && match?.thinkingLevelMap && !(thinking in match.thinkingLevelMap)) {
+	if (thinking && match?.thinkingLevelMap?.[thinking] === null) {
 		if (!explicitThinking) return { model: resolved, thinking: undefined };
 		throw new Error(`Model '${resolved}' does not support thinking level '${thinking}'.`);
 	}
@@ -196,12 +196,13 @@ export async function prepareSubagentLaunch(
 		agentDefs.autoExit = ctx.autoExit;
 	}
 	const requestedModel = params.model ?? agentDefs?.model ?? ctx.parentModelRef;
-	const requested = splitModelRefThinking(requestedModel, agentDefs?.thinking ?? ctx.parentThinking);
+	const requested = splitModelRefThinking(requestedModel, params.thinking ?? agentDefs?.thinking ?? ctx.parentThinking);
+	const explicitThinking = requested.explicitThinking || params.thinking != null;
 	const availableRequested = params.model
 		? resolveAvailableModelRef(
 			requested.model,
 			requested.thinking,
-			requested.explicitThinking,
+			explicitThinking,
 			ctx.modelRegistry,
 			ctx.parentModelRef,
 		)
@@ -408,8 +409,8 @@ export function buildPersistedSubagentLaunchMetadata(
 	boundarySystemPrompt: boolean,
 	systemPrompt?: string,
 ): PersistedSubagentLaunchMetadata {
-	const allowModelOverride = prepared.agentDefs?.allowModelOverride === true;
-	const modelSource = params.model
+	const allowModelOverride = prepared.agentDefs?.allowModelOverride !== false;
+	const modelSource = params.model || params.thinking
 		? "launch-override"
 		: prepared.agentDefs?.model
 			? "agent"
@@ -438,9 +439,12 @@ export function buildPersistedSubagentLaunchMetadata(
 		...(prepared.effectiveModelRef
 			? { modelRef: prepared.effectiveModelRef }
 			: {}),
+		...(prepared.agentDefs?.model ? { definitionModel: prepared.agentDefs.model } : {}),
+		...(prepared.agentDefs?.thinking ? { definitionThinking: prepared.agentDefs.thinking } : {}),
 		allowModelOverride,
 		...(modelSource ? { modelSource } : {}),
 		...(params.model ? { requestedModelOverride: params.model } : {}),
+		...(params.thinking ? { requestedThinkingOverride: params.thinking } : {}),
 		...(prepared.effectiveTools ? { tools: prepared.effectiveTools } : {}),
 		...(prepared.effectiveSkills ? { skills: prepared.effectiveSkills } : {}),
 		...(prepared.effectiveInjectSkills

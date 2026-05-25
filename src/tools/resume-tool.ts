@@ -73,7 +73,13 @@ export function registerSubagentResumeTool(
 			model: Type.Optional(
 				Type.String({
 					description:
-						"Optional provider/model[:thinking] override. Ignored unless the original launch metadata allowed model override.",
+						"Optional provider/model[:thinking] for the resumed child. Honored by default; ignored only when the original agent opted out with allow-model-override: false.",
+				}),
+			),
+			thinking: Type.Optional(
+				Type.String({
+					description:
+						"Optional thinking level for the resumed child. Honored by default; ignored only when the original agent opted out with allow-model-override: false.",
 				}),
 			),
 			mode: Type.Optional(
@@ -160,6 +166,7 @@ export function registerSubagentResumeTool(
 					agent: params.agent,
 					mode: params.mode as "interactive" | "background" | undefined,
 					model: params.model,
+					thinking: params.thinking,
 				},
 				runtime,
 			);

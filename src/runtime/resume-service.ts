@@ -27,6 +27,7 @@ import {
 	readSubagentExtensionEntry,
 	readSubagentLaunchMetadata,
 	writeSubagentLaunchMetadataEntry,
+	writeSubagentModelStateEntries,
 	type PersistedSubagentLaunchMetadata,
 } from "../session/session-files.ts";
 import type { RunningSubagent, SubagentResult } from "../types.ts";
@@ -48,6 +49,7 @@ export interface ResumeServiceRuntime {
 		controller: AbortController,
 	): AbortSignal;
 	startWidgetRefresh(): void;
+	getContextWindow(modelRef: string | undefined): number | undefined;
 	runningSubagents: Map<string, RunningSubagent>;
 	modelRegistry?: {
 		getAvailable(): Array<{
@@ -65,6 +67,7 @@ export interface ResumeSessionInput {
 	agent?: string;
 	mode?: "interactive" | "background";
 	model?: string;
+	thinking?: string;
 }
 
 const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh"]);
@@ -83,17 +86,27 @@ function splitResumeModelRef(
 export function resolveResumeLaunchMetadataForInvocation(
 	launchMetadata: PersistedSubagentLaunchMetadata | undefined,
 	requestedModel: string | undefined,
+	requestedThinking?: string,
 	modelRegistry?: ResumeServiceRuntime["modelRegistry"],
 ): PersistedSubagentLaunchMetadata | undefined {
-	if (!launchMetadata || !requestedModel) return launchMetadata;
-	if (launchMetadata.allowModelOverride !== true) {
-		return { ...launchMetadata, ignoredModelOverride: requestedModel };
+	if (!launchMetadata || (!requestedModel && !requestedThinking)) return launchMetadata;
+	if (launchMetadata.allowModelOverride === false) {
+		return {
+			...launchMetadata,
+			...(requestedModel ? { ignoredModelOverride: requestedModel } : {}),
+			...(requestedThinking ? { ignoredThinkingOverride: requestedThinking } : {}),
+		};
 	}
-	const requested = splitResumeModelRef(requestedModel, launchMetadata.thinking);
+	const baseModel = requestedModel ?? launchMetadata.modelRef ?? launchMetadata.model;
+	if (!baseModel) {
+		throw new Error("Cannot apply thinking override without a persisted model.");
+	}
+	const requested = splitResumeModelRef(baseModel, requestedThinking ?? launchMetadata.thinking);
+	const explicitThinking = requested.explicitThinking || requestedThinking != null;
 	const resolved = resolveAvailableModelRef(
 		requested.model,
 		requested.thinking,
-		requested.explicitThinking,
+		explicitThinking,
 		modelRegistry,
 		launchMetadata.modelRef,
 	);
@@ -104,11 +117,12 @@ export function resolveResumeLaunchMetadataForInvocation(
 	return {
 		...launchMetadata,
 		timestamp: new Date().toISOString(),
-		...(effectiveModel ? { model: effectiveModel } : {}),
-		...(effectiveThinking ? { thinking: effectiveThinking } : {}),
-		...(effectiveModelRef ? { modelRef: effectiveModelRef } : {}),
+		model: effectiveModel,
+		thinking: effectiveThinking,
+		modelRef: effectiveModelRef,
 		modelSource: "resume-override",
-		requestedModelOverride: requestedModel,
+		...(requestedModel ? { requestedModelOverride: requestedModel } : {}),
+		...(requestedThinking ? { requestedThinkingOverride: requestedThinking } : {}),
 	};
 }
 
@@ -137,11 +151,10 @@ export async function resumeSubagentSession(
 	const invocationMetadata = resolveResumeLaunchMetadataForInvocation(
 		launchMetadata,
 		input.model,
+		input.thinking,
 		runtime.modelRegistry,
 	);
-	if (invocationMetadata && invocationMetadata !== launchMetadata) {
-		writeSubagentLaunchMetadataEntry(sessionFile, invocationMetadata);
-	}
+	const shouldPersistInvocationMetadata = invocationMetadata && invocationMetadata !== launchMetadata;
 	const name = invocationMetadata?.name ?? metadata.name ?? input.name ?? "Resume";
 	const displayName = input.name ?? name;
 
@@ -237,6 +250,7 @@ export async function resumeSubagentSession(
 		startTime: Date.now(),
 		sessionFile,
 		launchEntryCount: entryCountBefore,
+		modelContextWindow: runtime.getContextWindow(invocationMetadata?.modelRef),
 	};
 
 	if (metadata.mode === "background") {
@@ -304,6 +318,12 @@ export async function resumeSubagentSession(
 		running.doneSentinelFile = doneSentinelFile;
 	}
 
+	if (shouldPersistInvocationMetadata) {
+		if (invocationMetadata.modelSource === "resume-override") {
+			writeSubagentModelStateEntries(sessionFile, invocationMetadata);
+		}
+		writeSubagentLaunchMetadataEntry(sessionFile, invocationMetadata);
+	}
 	runtime.runningSubagents.set(id, running);
 	runtime.startWidgetRefresh();
 

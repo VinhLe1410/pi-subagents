@@ -66,6 +66,7 @@ import {
 	type PersistedSubagentLaunchMetadata,
 	type SubagentSessionMode,
 	writeSubagentLaunchMetadataEntryWhenReady,
+	writeSubagentModelStateEntries,
 } from "../session/session-files.ts";
 import {
 	writeSystemPromptArtifact,
@@ -210,6 +211,13 @@ export async function writeSubagentLaunchMetadataEntryForTest(
 	await writeSubagentLaunchMetadataEntryWhenReady(path, metadata, 0);
 }
 
+export function writeSubagentModelStateEntriesForTest(
+	path: string,
+	metadata: Pick<PersistedSubagentLaunchMetadata, "model" | "thinking">,
+) {
+	writeSubagentModelStateEntries(path, metadata);
+}
+
 export function readSubagentLaunchMetadataForTest(path: string) {
 	return readSubagentLaunchMetadata(path);
 }
@@ -241,8 +249,10 @@ export function getPersistedSessionParityArgsForTest(
 export function resolveResumeLaunchMetadataForInvocationForTest(
 	metadata: PersistedSubagentLaunchMetadata | undefined,
 	requestedModel: string | undefined,
+	modelRegistry?: Parameters<typeof resolveResumeLaunchMetadataForInvocation>[3],
+	requestedThinking?: string,
 ) {
-	return resolveResumeLaunchMetadataForInvocation(metadata, requestedModel);
+	return resolveResumeLaunchMetadataForInvocation(metadata, requestedModel, requestedThinking, modelRegistry);
 }
 
 export function splitModelRefThinkingForTest(
@@ -264,7 +274,7 @@ export function resolveAvailableModelRefForTest(
 		explicitThinking,
 		{
 			getAvailable: () => [
-				{ provider: "zai-messages", id: "glm-5-turbo", thinkingLevelMap: { low: "low" } },
+				{ provider: "zai-messages", id: "glm-5-turbo", thinkingLevelMap: { high: null } },
 				{ provider: "zai-messages", id: "glm-5.1", thinkingLevelMap: { high: "high" } },
 				{ provider: "other", id: "glm-5.1", thinkingLevelMap: { high: "high" } },
 			],

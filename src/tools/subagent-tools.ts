@@ -36,7 +36,8 @@ const SubagentChildParams = Type.Object({
 	task: Type.String({ description: "Task/prompt for the sub-agent. For non-trivial work, write readable Markdown: short paragraphs, bullets, or headings as appropriate. Use a one-line task only for trivial work." }),
 	title: Type.String({ description: SUBAGENT_TITLE_DESCRIPTION }),
 	agent: Type.String({ description: "Required agent definition name. Reads .pi/agents/<name>.md or ~/.pi/agent/agents/<name>.md and refuses ad-hoc unnamed subagents." }),
-	model: Type.Optional(Type.String({ description: "Optional provider/model[:thinking] override. Ignored unless the agent definition sets allow-model-override: true." })),
+	model: Type.Optional(Type.String({ description: "Optional provider/model[:thinking] to run this child with. Honored by default; ignored only when the agent definition sets allow-model-override: false." })),
+	thinking: Type.Optional(Type.String({ description: "Optional thinking level for this child. Honored by default; ignored only when the agent definition sets allow-model-override: false." })),
 });
 
 const SubagentParams = Type.Object({
@@ -44,7 +45,8 @@ const SubagentParams = Type.Object({
 	task: Type.Optional(Type.String({ description: "Task/prompt for a single sub-agent. For non-trivial work, write readable Markdown: short paragraphs, bullets, or headings as appropriate. Use a one-line task only for trivial work." })),
 	title: Type.Optional(Type.String({ description: SUBAGENT_TITLE_DESCRIPTION })),
 	agent: Type.Optional(Type.String({ description: "Required agent definition name for a single subagent launch." })),
-	model: Type.Optional(Type.String({ description: "Optional provider/model[:thinking] override. Ignored unless the agent definition sets allow-model-override: true." })),
+	model: Type.Optional(Type.String({ description: "Optional provider/model[:thinking] to run this child with. Honored by default; ignored only when the agent definition sets allow-model-override: false." })),
+	thinking: Type.Optional(Type.String({ description: "Optional thinking level for this child. Honored by default; ignored only when the agent definition sets allow-model-override: false." })),
 	children: Type.Optional(Type.Array(SubagentChildParams, { description: "Spawn multiple children in one deterministic launch. Use this instead of multiple separate subagent tool calls when a user asks for more than one agent." })),
 });
 const SubagentKillParams = Type.Object({ id: Type.String({ description: "Running subagent id or display name to stop" }) });

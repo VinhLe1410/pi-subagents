@@ -25,7 +25,7 @@ const SECTION_FIELDS = [
 	},
 	{
 		title: "Model",
-		fields: ["model", "thinking"],
+		fields: ["model", "thinking", "allow-model-override", "override-model", "override-thinking"],
 	},
 	{
 		title: "Workspace",
@@ -61,8 +61,13 @@ function buildSections(
 			value: meta.timestamp ? new Date(meta.timestamp).toLocaleString() : "—",
 		});
 	}
-	fields.push({ label: "model", value: inherited(meta?.model ?? defs?.model) });
-	fields.push({ label: "thinking", value: inherited(meta?.thinking ?? defs?.thinking) });
+	fields.push({ label: "model", value: inherited(meta?.definitionModel ?? defs?.model ?? meta?.model) });
+	fields.push({ label: "thinking", value: inherited(meta?.definitionThinking ?? defs?.thinking ?? meta?.thinking) });
+	fields.push({ label: "allow-model-override", value: String(meta ? meta.allowModelOverride === true : defs?.allowModelOverride === true) });
+	if (meta?.modelSource === "launch-override" || meta?.modelSource === "resume-override") {
+		fields.push({ label: "override-model", value: inherited(meta.model) });
+		fields.push({ label: "override-thinking", value: inherited(meta.thinking) });
+	}
 	fields.push({ label: "mode", value: meta?.mode ?? defs?.mode ?? "interactive" });
 	fields.push({ label: "cwd", value: meta?.cwd ?? defs?.cwd ?? "parent cwd" });
 	fields.push({ label: "flags", value: none(meta?.flags ?? defs?.flags) });
@@ -329,12 +334,17 @@ export function buildRunningItems(ctx: OverlayContext): OverlayItem[] {
 export async function buildCompletedItems(ctx: OverlayContext): Promise<OverlayItem[]> {
 	const items: OverlayItem[] = [];
 	const seen = new Set<string>();
+	const latestCompleted = new Map<string, CompletedSubagentResult>();
 	const runningSessionFiles = new Set(
 		[...runningSubagents.values()].map((subagent) => subagent.sessionFile).filter(Boolean),
 	);
 
 	for (const [id, r] of completedSubagentResults) {
-		seen.add(r.sessionFile ?? id);
+		latestCompleted.set(r.sessionFile ?? id, r);
+	}
+
+	for (const [dedupeKey, r] of latestCompleted) {
+		seen.add(dedupeKey);
 
 		const visual = statusVisuals(r.status);
 

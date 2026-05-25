@@ -38,9 +38,10 @@ export function getSubagentAgentOverrideError(
 	_params: Partial<SubagentParamsInput>,
 	_agentDefs: AgentDefaults | null,
 ) {
-	// Named-agent frontmatter is authoritative by default. Call-time model is
-	// allowed only when the definition opts in with allow-model-override: true;
-	// other call-time runtime fields are ignored instead of rejected.
+	// Named-agent frontmatter is authoritative by default. Call-time model and
+	// thinking overrides are allowed unless the definition opts out with
+	// allow-model-override: false; other call-time runtime fields are ignored
+	// instead of rejected.
 	return null;
 }
 
@@ -127,8 +128,11 @@ export function enforceAgentFrontmatter(
 		task: params.task,
 		title: params.title,
 		agent: params.agent,
-		...(agentDefs?.allowModelOverride === true && params.model
+		...(agentDefs?.allowModelOverride !== false && params.model
 			? { model: params.model }
+			: {}),
+		...(agentDefs?.allowModelOverride !== false && params.thinking
+			? { thinking: params.thinking }
 			: {}),
 		async: resolveSubagentAsync(params, agentDefs),
 		blocking: resolveSubagentBlocking(params, agentDefs),
