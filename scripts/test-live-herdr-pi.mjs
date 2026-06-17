@@ -205,6 +205,19 @@ function getLaunchMetadata(events) {
   return undefined;
 }
 
+function hasAssistantToolCall(events, toolName) {
+  return events.some((event) => {
+    if (event.type !== "message" || event.message?.role !== "assistant") return false;
+    return (event.message.content ?? []).some((part) => part.type === "toolCall" && part.name === toolName);
+  });
+}
+
+function hasToolResult(events, toolName) {
+  return events.some(
+    (event) => event.type === "message" && event.message?.role === "toolResult" && event.message.toolName === toolName,
+  );
+}
+
 function getSessionHeader(events) {
   return events.find((entry) => entry?.type === "session");
 }
@@ -225,6 +238,38 @@ function findObservedChildTab(childName, parentTabId) {
     }
   }
   return "";
+}
+
+function isChildTabOpen(childName, childTabId) {
+  return listTabs().some((tab) => tab?.tab_id === childTabId || tab?.label === childName);
+}
+
+function findChildSession(sessionDir, scenario) {
+  for (const file of listJsonlFiles(sessionDir)) {
+    const events = parseJsonl(file);
+    const metadata = getLaunchMetadata(events);
+    if (metadata?.name === scenario.childName && metadata?.agent === scenario.agentName) {
+      return { file, events, metadata };
+    }
+  }
+  return null;
+}
+
+function childHasDoneText(child, scenario) {
+  return getAssistantTexts(child.events).some((text) => text.includes(scenario.childDoneText));
+}
+
+async function waitForManualInteractiveChildReady(ctx, scenario, childTabId) {
+  const child = findChildSession(ctx.sessionDir, scenario);
+  if (!child || !childHasDoneText(child, scenario)) return false;
+  if (!isChildTabOpen(scenario.childName, childTabId)) {
+    throw new Error(`Manual interactive child ${scenario.childName} closed before operator close`);
+  }
+  await sleep(2000);
+  if (!isChildTabOpen(scenario.childName, childTabId)) {
+    throw new Error(`Manual interactive child ${scenario.childName} auto-closed instead of waiting for the operator`);
+  }
+  return true;
 }
 
 function getParentScreen(parentPaneId) {
@@ -294,9 +339,18 @@ async function waitForScenarioOutcome(ctx, scenario, parentPaneId, parentTabId) 
   const deadline = Date.now() + SCENARIO_TIMEOUT_MS;
   let observedChildTabId = "";
   let lastParent = null;
+  let operatorClosedChild = false;
 
   while (Date.now() < deadline) {
     observedChildTabId ||= findObservedChildTab(scenario.childName, parentTabId);
+    if (scenario.operatorCloses && observedChildTabId && !operatorClosedChild) {
+      const ready = await waitForManualInteractiveChildReady(ctx, scenario, observedChildTabId);
+      if (ready) {
+        closeTabQuiet(observedChildTabId);
+        operatorClosedChild = true;
+      }
+    }
+
     const parent = findParentSession(ctx.sessionDir, scenario.doneText);
     if (parent) {
       lastParent = parent;
@@ -307,7 +361,7 @@ async function waitForScenarioOutcome(ctx, scenario, parentPaneId, parentTabId) 
         throw new Error(`Parent-visible subagent result was ${status}: ${JSON.stringify(toolResult?.details, null, 2)}`);
       }
       if (assistantTexts.includes(scenario.doneText) && status === "completed") {
-        return { parent, toolResult, observedChildTabId };
+        return { parent, toolResult, observedChildTabId, operatorClosedChild };
       }
     }
     await sleep(POLL_INTERVAL_MS);
@@ -347,14 +401,19 @@ function writeChildAgent(ctx, scenario, liveModel) {
   const envValue = `${scenario.name}-env`;
   const childCwd = join(ctx.workDir, scenario.childWorkspaceName);
   const probeCommand = `printf 'scenario=%s\\ncwd=%s\\nenv=%s\\n' ${shellQuote(scenario.name)} "$PWD" "$LIVE_HERDR_CHILD_ENV" > ${shellQuote(scenario.probePath)}; sleep 2`;
+  const lifecycleInstruction = scenario.autoExit
+    ? `Then reply with exactly \`${scenario.childDoneText}\` and nothing else.`
+    : scenario.childMode === "background"
+      ? `Then write a final assistant message containing exactly \`${scenario.childDoneText}\` and no other text. Immediately after that final message, call the subagent_done tool.`
+      : `Then reply with exactly \`${scenario.childDoneText}\` and nothing else. Stay in this Herdr pane and wait for the operator to close it; do not exit on your own.`;
 
   writeFileSync(
     join(ctx.agentsDir, `${scenario.agentName}.md`),
     `---
 name: ${scenario.agentName}
-description: Live Herdr Pi smoke child for ${scenario.name} mux selection.
-mode: interactive
-auto-exit: true
+description: Live Herdr Pi smoke child for ${scenario.name} ${scenario.childMode} auto-exit ${scenario.autoExit}.
+mode: ${scenario.childMode}
+auto-exit: ${scenario.autoExit ? "true" : "false"}
 async: false
 parent-close-policy: terminate
 spawning: false
@@ -371,7 +430,7 @@ First run this exact bash command:
 
 \`${probeCommand}\`
 
-Then reply with exactly \`${scenario.childDoneText}\` and nothing else.
+${lifecycleInstruction}
 `,
     "utf8",
   );
@@ -384,7 +443,7 @@ function buildParentPrompt(scenario) {
   ].join(" ");
 }
 
-function buildParentCommand(ctx, scenario, prompt, liveModel) {
+function buildParentCommand(ctx, scenario, liveModel) {
   const unset = [
     "PI_SUBAGENT_AGENT",
     "PI_SUBAGENT_NAME",
@@ -415,7 +474,6 @@ function buildParentCommand(ctx, scenario, prompt, liveModel) {
     "--session-dir",
     shellQuote(ctx.sessionDir),
     "--no-context-files",
-    shellQuote(prompt),
   ].join(" ");
 
   return `cd ${shellQuote(ctx.workDir)} && env ${unset} ${assignments} ${args}`;
@@ -424,10 +482,10 @@ function buildParentCommand(ctx, scenario, prompt, liveModel) {
 function validateParentOutcome(scenario, toolResult) {
   const details = toolResult.details ?? {};
   if (details.status !== "completed") throw new Error(`Expected completed child status, got ${details.status ?? "missing"}`);
-  if (details.mode !== "interactive") throw new Error(`Expected interactive child mode, got ${details.mode ?? "missing"}`);
+  if (details.mode !== scenario.childMode) throw new Error(`Expected ${scenario.childMode} child mode, got ${details.mode ?? "missing"}`);
   if (details.deliveryState !== "awaited") throw new Error(`Expected awaited delivery, got ${details.deliveryState ?? "missing"}`);
   if (details.async !== false) throw new Error(`Expected blocking child async=false, got ${details.async ?? "missing"}`);
-  if (details.autoExit !== true) throw new Error(`Expected autoExit=true, got ${details.autoExit ?? "missing"}`);
+  if (details.autoExit !== scenario.autoExit) throw new Error(`Expected autoExit=${scenario.autoExit}, got ${details.autoExit ?? "missing"}`);
   if (details.parentClosePolicy !== "terminate") throw new Error(`Expected parentClosePolicy=terminate, got ${details.parentClosePolicy ?? "missing"}`);
   if (details.name !== scenario.childName) throw new Error(`Expected child name ${scenario.childName}, got ${details.name ?? "missing"}`);
   if (!details.sessionFile || !existsSync(details.sessionFile)) throw new Error("Parent-visible child result missing existing sessionFile");
@@ -440,8 +498,8 @@ function validateChildSession(ctx, scenario, childSessionFile) {
   if (!metadata) throw new Error(`Child session ${childSessionFile} missing launch metadata`);
 
   const expectedChildCwd = join(ctx.workDir, scenario.childWorkspaceName);
-  if (metadata.mode !== "interactive") throw new Error(`Child metadata mode was ${metadata.mode ?? "missing"}`);
-  if (metadata.autoExit !== true) throw new Error(`Child metadata autoExit was ${metadata.autoExit ?? "missing"}`);
+  if (metadata.mode !== scenario.childMode) throw new Error(`Child metadata mode was ${metadata.mode ?? "missing"}`);
+  if (metadata.autoExit !== scenario.autoExit) throw new Error(`Child metadata autoExit was ${metadata.autoExit ?? "missing"}`);
   if (metadata.async !== false) throw new Error(`Child metadata async was ${metadata.async ?? "missing"}`);
   if (metadata.parentClosePolicy !== "terminate") throw new Error(`Child metadata parentClosePolicy was ${metadata.parentClosePolicy ?? "missing"}`);
   if (metadata.agent !== scenario.agentName) throw new Error(`Child metadata agent was ${metadata.agent ?? "missing"}`);
@@ -451,6 +509,17 @@ function validateChildSession(ctx, scenario, childSessionFile) {
   if (metadata.trustProject !== true) throw new Error(`Child metadata trustProject was ${metadata.trustProject ?? "missing"}`);
   if (!Array.isArray(metadata.denyTools) || !metadata.denyTools.includes("subagent")) {
     throw new Error(`Child metadata did not preserve non-spawning deny tools: ${JSON.stringify(metadata.denyTools)}`);
+  }
+  if (!getAssistantTexts(events).some((text) => text.includes(scenario.childDoneText))) {
+    throw new Error(`Child session ${childSessionFile} did not include ${scenario.childDoneText}`);
+  }
+  if (scenario.childMode === "background" && scenario.autoExit === false) {
+    if (!hasAssistantToolCall(events, "subagent_done")) {
+      throw new Error(`Manual background child ${childSessionFile} did not call subagent_done`);
+    }
+    if (!hasToolResult(events, "subagent_done")) {
+      throw new Error(`Manual background child ${childSessionFile} did not complete subagent_done`);
+    }
   }
 
   const header = getSessionHeader(events);
@@ -496,30 +565,43 @@ async function runScenario(ctx, scenario, liveModel) {
 
     await sleep(500);
     const prompt = buildParentPrompt(scenario);
-    const command = buildParentCommand(ctx, scenario, prompt, liveModel);
+    const command = buildParentCommand(ctx, scenario, liveModel);
     runHerdrRaw(["pane", "run", parentPaneId, command]);
     await waitForParentPiStartup(parentPaneId);
+    runHerdrRaw(["pane", "send-text", parentPaneId, prompt]);
     await waitForParentEditorText(parentPaneId, scenario.doneText);
     await submitParentPromptUntilAssistant(ctx, scenario, parentPaneId);
 
     const outcome = await waitForScenarioOutcome(ctx, scenario, parentPaneId, parentTabId);
     observedChildTabId = outcome.observedChildTabId;
-    if (!observedChildTabId) {
+    if (scenario.expectChildTab && !observedChildTabId) {
       throw new Error(`Did not observe a Herdr child tab labelled ${scenario.childName} while ${scenario.name} scenario ran`);
+    }
+    if (!scenario.expectChildTab && observedChildTabId) {
+      throw new Error(`Background scenario ${scenario.name} unexpectedly opened Herdr child tab ${observedChildTabId}`);
+    }
+    if (scenario.operatorCloses && !outcome.operatorClosedChild) {
+      throw new Error(`Manual interactive scenario ${scenario.name} did not reach operator-close validation`);
     }
 
     const childSessionFile = validateParentOutcome(scenario, outcome.toolResult);
     const { metadata } = validateChildSession(ctx, scenario, childSessionFile);
     await validateChildProbe(scenario, metadata.cwd);
-    await waitForChildSurfaceCleanup(scenario.childName, observedChildTabId);
+    if (scenario.expectChildTab) {
+      await waitForChildSurfaceCleanup(scenario.childName, observedChildTabId);
+    }
 
     return {
       scenario: scenario.name,
+      mode: scenario.childMode,
+      autoExit: scenario.autoExit,
       forcedMux: scenario.forceMux,
       parentSessionFile: outcome.parent.file,
       childSessionFile,
-      childTabObserved: observedChildTabId,
-      childSurfaceCleaned: true,
+      childTabObserved: observedChildTabId || null,
+      childSurfaceCleaned: scenario.expectChildTab ? true : null,
+      backgroundSurfaceAbsent: scenario.expectChildTab ? null : true,
+      operatorClosedChild: outcome.operatorClosedChild,
       cwdVerified: true,
       envVerified: true,
       parentVisibleOutcome: outcome.toolResult.details.status,
@@ -551,6 +633,10 @@ function createContext() {
   const scenarios = [
     {
       name: "default",
+      childMode: "interactive",
+      autoExit: true,
+      expectChildTab: true,
+      operatorCloses: false,
       forceMux: false,
       agentName: "live-herdr-child-default",
       childName: `herdr-${runToken}-default`,
@@ -562,6 +648,10 @@ function createContext() {
     },
     {
       name: "forced",
+      childMode: "interactive",
+      autoExit: true,
+      expectChildTab: true,
+      operatorCloses: false,
       forceMux: true,
       agentName: "live-herdr-child-forced",
       childName: `herdr-${runToken}-forced`,
@@ -570,6 +660,51 @@ function createContext() {
       doneText: "LIVE_HERDR_PI_FORCED_DONE",
       childDoneText: "LIVE_HERDR_PI_FORCED_CHILD_OK",
       probePath: join(tmpRoot, "forced-probe.txt"),
+    },
+    {
+      name: "interactive-manual",
+      childMode: "interactive",
+      autoExit: false,
+      expectChildTab: true,
+      operatorCloses: true,
+      forceMux: true,
+      agentName: "live-herdr-child-manual",
+      childName: `herdr-${runToken}-manual`,
+      title: "Live Herdr manual child",
+      childWorkspaceName: "child-workspace-manual",
+      doneText: "LIVE_HERDR_PI_MANUAL_DONE",
+      childDoneText: "LIVE_HERDR_PI_MANUAL_CHILD_OK",
+      probePath: join(tmpRoot, "manual-probe.txt"),
+    },
+    {
+      name: "background-auto",
+      childMode: "background",
+      autoExit: true,
+      expectChildTab: false,
+      operatorCloses: false,
+      forceMux: true,
+      agentName: "live-herdr-child-bg-auto",
+      childName: `herdr-${runToken}-bg-auto`,
+      title: "Live Herdr background auto child",
+      childWorkspaceName: "child-workspace-bg-auto",
+      doneText: "LIVE_HERDR_PI_BG_AUTO_DONE",
+      childDoneText: "LIVE_HERDR_PI_BG_AUTO_CHILD_OK",
+      probePath: join(tmpRoot, "bg-auto-probe.txt"),
+    },
+    {
+      name: "background-manual",
+      childMode: "background",
+      autoExit: false,
+      expectChildTab: false,
+      operatorCloses: false,
+      forceMux: true,
+      agentName: "live-herdr-child-bg-manual",
+      childName: `herdr-${runToken}-bg-manual`,
+      title: "Live Herdr background manual child",
+      childWorkspaceName: "child-workspace-bg-manual",
+      doneText: "LIVE_HERDR_PI_BG_MANUAL_DONE",
+      childDoneText: "LIVE_HERDR_PI_BG_MANUAL_CHILD_OK",
+      probePath: join(tmpRoot, "bg-manual-probe.txt"),
     },
   ];
 
