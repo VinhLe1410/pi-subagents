@@ -23,11 +23,13 @@ function getSubagentCompletionStatus(
 	if (result.exitCode === 0) return "completed";
 	// Manual interactive children (auto-exit: false) complete when the operator
 	// closes the pane. A forced mux/pane close can leave the shell EXIT-trap with a
-	// non-zero status; if the child already produced a real final assistant message,
-	// that close is a successful operator close rather than a crash.
+	// non-zero status; if the child already produced a real final assistant message
+	// and the watcher did not hit an error path, that close is a successful operator
+	// close rather than a crash.
 	if (
 		running?.mode === "interactive" &&
 		running.autoExit === false &&
+		!result.error &&
 		hasRealSubagentOutput(result.summary)
 	) {
 		return "completed";

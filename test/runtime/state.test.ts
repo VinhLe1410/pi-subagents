@@ -96,6 +96,21 @@ describe("getSubagentCompletionStatus (via buildCompletedSubagentResult)", () =>
 		assert.equal(backgroundManual.status, "failed");
 	});
 
+	it("keeps a manual interactive child failed when the watcher hit an error path", () => {
+		// If the pane was destroyed before the EXIT trap ran, the watcher returns an
+		// error result with an "Subagent error: …" summary. That is not a clean
+		// operator close, so it must stay failed even for manual interactive children.
+		const result = buildCompletedSubagentResult(
+			makeRunning({ mode: "interactive", autoExit: false }),
+			makeResult({
+				exitCode: 1,
+				summary: "Subagent error: Failed to read subagent surface while polling for exit",
+				error: "Failed to read subagent surface while polling for exit",
+			}),
+		);
+		assert.equal(result.status, "failed");
+	});
+
 	it("returns failed when exitCode is non-zero", () => {
 		const result = buildCompletedSubagentResult(
 			makeRunning(),
