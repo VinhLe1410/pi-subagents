@@ -4,7 +4,7 @@
 
 It began as a fork of [HazAT/pi-interactive-subagents](https://github.com/HazAT/pi-interactive-subagents), then grew into a monumental refactor: named agents, interactive panes, background workers, async parallelism, blocking agents, child-to-parent communication, forked context, a beautiful TUI widget, orchestrator mode, and much more!
 
-Use it when one agent should hand work to another agent instead of trying to do everything in one transcript.
+Use it when one agent should hand work to another agent instead of trying to do everything in one transcript. Interactive children open in Herdr, cmux, tmux, zellij, or WezTerm; background children run headlessly.
 
 https://github.com/user-attachments/assets/e0b97493-6c9b-4710-ba26-a6c08230ba28
 
@@ -34,7 +34,7 @@ Two axes matter:
 - `interactive` or `background`: where the child runs
 - async or sync: whether the parent waits
 
-`interactive` means foreground. Pi opens a visible surface through Herdr, cmux, tmux, zellij, or WezTerm. To keep children usable, normal interactive launches use a non-shrinking surface such as a tab, window, or stacked pane when repeated splits would make panes too small.
+`interactive` means foreground. Pi opens a visible surface through Herdr, cmux, tmux, zellij, or WezTerm. Normal launches use a backend-specific surface, such as a workspace, tab, window, split, or stacked pane.
 
 `background` means headless. Pi starts a `pi -p` child process without opening a pane.
 
@@ -42,26 +42,13 @@ Async means the parent gets a “started” result and the child answer comes ba
 
 ### Interactive mux backends
 
-Pi chooses an interactive backend when it launches an interactive child. Set `PI_SUBAGENT_MUX` to force one backend, or leave it unset to let Pi detect the current terminal environment.
+Interactive children open in your current terminal backend. `pi-subagents` supports Herdr, cmux, tmux, zellij, and WezTerm.
 
-Herdr is available when all of these checks pass:
+Start `pi` inside the backend you want to use. Leave `PI_SUBAGENT_MUX` unset to let Pi detect it, or set it to `herdr`, `cmux`, `tmux`, `zellij`, or `wezterm` to force one.
 
-- `herdr` is on `PATH`
-- `herdr status server --json` reports a running compatible server
-- `herdr pane current --current` can identify the current Herdr pane
+The backend command must exist, and Pi must be able to see the current pane or session context. If no supported backend is active, interactive launches fail with a setup hint.
 
-Start Pi from inside Herdr when you want automatic Herdr selection:
-
-```bash
-herdr
-pi
-```
-
-When Herdr is available and `PI_SUBAGENT_MUX` is unset, Pi prefers Herdr over an outer cmux, tmux, zellij, or WezTerm environment. Set `PI_SUBAGENT_MUX=tmux`, `cmux`, `zellij`, or `wezterm` when you want that backend instead. Set `PI_SUBAGENT_MUX=herdr` when the launch must use Herdr; if the Herdr checks fail, Pi reports that no supported mux is available instead of falling back silently.
-
-Normal Herdr child launches create a new Herdr tab in the current workspace. That keeps the parent pane from shrinking as more children open. The created child pane receives the resolved child cwd, environment, frontmatter-derived Pi arguments, `PI_SUBAGENT_SURFACE`, and the same lifecycle policy as other interactive backends.
-
-Explicit split requests are narrower. Herdr supports right and down splits through this package. Left and up split requests fail with a clear unsupported-direction error because Herdr cannot place those directions through the adapter without lying about pane placement. Normal subagent launches do not use that split path.
+Normal launches use a backend-specific surface. Herdr creates a numbered workspace named after the child session. Other backends may use tabs, windows, splits, or stacked panes.
 
 ### Orchestrator mode
 
@@ -542,7 +529,7 @@ Every `subagent` call requires both a strict `name` and a short `title`.
 Child sessions can also get session titles like:
 
 ```text
-[scout agent] Auth flow reconnaissance
+[scout] Auth flow reconnaissance
 ```
 
 Disable child session titles with `PI_SUBAGENT_DISABLE_SESSION_TITLES=1`.
@@ -614,7 +601,7 @@ node --test test/mux/herdr.test.ts
 node --test test/launch/herdr-interactive-launch.test.ts
 ```
 
-The mux test covers Herdr detection, forced preferences, adapter error reporting, non-shrinking tab creation, split limitations, command send, screen reads, title and workspace labels, and cleanup. The launch test covers Herdr parity for cwd, env, flags, trust-project approval, session settings, model and thinking resolution, tool narrowing, skills, lifecycle policy, and explicit `PI_SUBAGENT_MUX=herdr` selection.
+The mux test covers Herdr detection, forced preferences, adapter error reporting, numbered workspace creation, split limitations, command send, screen reads, title and workspace labels, and cleanup. The launch test covers Herdr parity for cwd, env, flags, trust-project approval, session settings, model and thinking resolution, tool narrowing, skills, lifecycle policy, and explicit `PI_SUBAGENT_MUX=herdr` selection.
 
 Live tests:
 
@@ -636,9 +623,9 @@ npm run test:live-herdr-mux
 npm run test:live-herdr-pi
 ```
 
-Without opt-in variables, each Herdr smoke prints a `SKIP` line and exits before creating Herdr panes or tabs. Use the skip output as guard evidence only. It is not a real live smoke run.
+Without opt-in variables, each Herdr smoke prints a `SKIP` line and exits before creating Herdr surfaces. Use the skip output as guard evidence only. It is not a real live smoke run.
 
-Run the real Herdr mux smoke only when you are ready to create temporary Herdr windows:
+Run the real Herdr mux smoke only when you are ready to create temporary Herdr surfaces:
 
 ```bash
 PI_SUBAGENT_ALLOW_LIVE_WINDOWS=1 npm run test:live-herdr-mux
@@ -652,7 +639,7 @@ PI_SUBAGENT_LIVE_MODEL=provider/model[:thinking] \
 npm run test:live-herdr-pi
 ```
 
-Both Herdr smoke scripts check the `herdr` command, server running status, and protocol compatibility before mutating panes. They label created tabs and panes with a unique marker, then close marked surfaces during cleanup.
+Both Herdr smoke scripts check the `herdr` command, server running status, and protocol compatibility before mutating surfaces. They label created workspaces and panes with a unique marker, then close marked surfaces during cleanup.
 
 Herdr validation record for this release:
 

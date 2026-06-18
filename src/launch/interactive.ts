@@ -70,7 +70,8 @@ export async function launchInteractiveSubagent(
 		injectSkills: prepared.effectiveInjectSkills,
 	});
 	const surfacePreCreated = !!options?.surface;
-	const surface = options?.surface ?? createSurface(params.name);
+	const surfaceName = prepared.sessionTitle ?? params.name;
+	const surface = options?.surface ?? createSurface(surfaceName);
 	traceSubagentLaunch("interactive.surface", {
 		id,
 		name: params.name,

@@ -484,7 +484,7 @@ describe("ambient agents and runtime paths", () => {
 				title: "Auth flow reconnaissance",
 				task: "Explore web app's auth\nReturn a concise report.",
 			}),
-			"[scout agent] Auth flow reconnaissance",
+			"[scout] Auth flow reconnaissance",
 		);
 
 		assert.equal(
@@ -493,7 +493,7 @@ describe("ambient agents and runtime paths", () => {
 				title: "Local diff bug review",
 				task: "Objective: Review the local diff for high-confidence bugs and summarize findings in detail",
 			}),
-			"[Reviewer agent] Local diff bug review",
+			"[Reviewer] Local diff bug review",
 		);
 
 		assert.equal(
@@ -526,11 +526,11 @@ describe("ambient agents and runtime paths", () => {
 		writeFileSync(parent, `${JSON.stringify(SESSION_HEADER)}\n`);
 
 		seedSubagentSessionFileForTest("lineage-only", parent, child, dir, {
-			sessionName: "[reviewer agent] Review sync resume blocking fix",
+			sessionName: "[reviewer] Review sync resume blocking fix",
 		});
 
 		const header = JSON.parse(readFileSync(child, "utf8").split("\n")[0]);
-		assert.equal(header.name, "[reviewer agent] Review sync resume blocking fix");
+		assert.equal(header.name, "[reviewer] Review sync resume blocking fix");
 		assert.equal(header.parentSession, parent);
 	});
 
@@ -544,11 +544,11 @@ describe("ambient agents and runtime paths", () => {
 		);
 
 		seedSubagentSessionFileForTest("fork", parent, child, dir, {
-			sessionName: "[reviewer agent] Gilfoyle-level review of all changes",
+			sessionName: "[reviewer] Gilfoyle-level review of all changes",
 		});
 
 		const header = JSON.parse(readFileSync(child, "utf8").split("\n")[0]);
-		assert.equal(header.name, "[reviewer agent] Gilfoyle-level review of all changes");
+		assert.equal(header.name, "[reviewer] Gilfoyle-level review of all changes");
 		assert.equal(header.parentSession, parent);
 	});
 

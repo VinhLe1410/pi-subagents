@@ -1,6 +1,7 @@
 import {
-	createHerdrTabSurface,
+	createHerdrWorkspaceSurface,
 	getHerdrCurrentPane,
+	getHerdrWorkspace,
 	renameHerdrTab,
 	renameHerdrWorkspace,
 	splitHerdrPane,
@@ -17,21 +18,26 @@ function assertSupportedHerdrSplitDirection(
 	);
 }
 
+function numberedHerdrWorkspaceTitle(title: string, workspaceNumber: number | undefined): string {
+	if (workspaceNumber === undefined) return title;
+	const cleanTitle = title.replace(/^\d+:\s*/, "").trim();
+	return `${workspaceNumber}: ${cleanTitle}`;
+}
+
+function isSubagentProcess(): boolean {
+	return !!(process.env.PI_SUBAGENT_NAME || process.env.PI_SUBAGENT_SESSION);
+}
+
 export function createHerdrSurface(name: string): string {
-	const parentPane = getHerdrCurrentPane();
-	const surface = createHerdrTabSurface({
+	const surface = createHerdrWorkspaceSurface({
 		label: name,
 		cwd: process.cwd(),
-		workspaceId: parentPane.workspaceId,
 		focus: false,
 	});
-
-	if (parentPane.tabId && surface.tab.tabId === parentPane.tabId) {
-		throw new Error(
-			`Herdr tab create returned the parent tab ${parentPane.tabId}; expected a non-shrinking new tab`,
-		);
-	}
-
+	renameHerdrWorkspace(
+		surface.workspace.workspaceId,
+		numberedHerdrWorkspaceTitle(name, surface.workspace.number),
+	);
 	return surface.pane.paneId;
 }
 
@@ -72,5 +78,14 @@ export function renameHerdrCurrentTab(title: string): void {
 }
 
 export function renameHerdrCurrentWorkspace(title: string): void {
-	renameHerdrWorkspace(currentHerdrWorkspaceId(), title);
+	const workspaceId = currentHerdrWorkspaceId();
+	if (!isSubagentProcess()) {
+		renameHerdrWorkspace(workspaceId, title);
+		return;
+	}
+	const workspace = getHerdrWorkspace(workspaceId);
+	renameHerdrWorkspace(
+		workspaceId,
+		numberedHerdrWorkspaceTitle(title, workspace.number),
+	);
 }

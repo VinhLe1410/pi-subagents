@@ -539,24 +539,24 @@ describe("agent launch configuration", () => {
 	it("adds native session names for prepared child launches", () => {
 		assert.deepEqual(getPreparedSessionLaunchArgsForTest({
 			subagentSessionFile: "child.jsonl",
-			sessionTitle: "[reviewer agent] Code review",
+			sessionTitle: "[reviewer] Code review",
 			agentDefs: {},
 		}), [
 			"--session",
 			"child.jsonl",
 			"--name",
-			"[reviewer agent] Code review",
+			"[reviewer] Code review",
 		]);
 		assert.deepEqual(getPreparedSessionLaunchArgsForTest({
 			subagentSessionFile: "child.jsonl",
-			sessionTitle: "[reviewer agent] Disposable review",
+			sessionTitle: "[reviewer] Disposable review",
 			agentDefs: { noSession: true },
 		}), [
 			"--session",
 			"child.jsonl",
 			"--no-session",
 			"--name",
-			"[reviewer agent] Disposable review",
+			"[reviewer] Disposable review",
 		]);
 	});
 

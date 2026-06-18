@@ -98,8 +98,8 @@ export function buildSubagentSessionTitle(
 	if (!agentType) return undefined;
 	const description = getSubagentDisplayTitle(params);
 	return description
-		? `[${agentType} agent] ${description}`
-		: `[${agentType} agent]`;
+		? `[${agentType}] ${description}`
+		: `[${agentType}]`;
 }
 
 export function getTerminalAssistantSummary(

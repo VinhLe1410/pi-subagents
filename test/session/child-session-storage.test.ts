@@ -20,7 +20,7 @@ function launchMetadata(cwd: string): PersistedSubagentLaunchMetadata {
 		timestamp: "2026-06-01T00:00:00.000Z",
 		name: "child-audit",
 		title: "Child audit",
-		sessionTitle: "[scout agent] Child audit",
+		sessionTitle: "[scout] Child audit",
 		agent: "scout",
 		mode: "background",
 		sessionMode: "fork",
