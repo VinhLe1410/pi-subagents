@@ -13,13 +13,40 @@ export const completedSubagentResults = new Map<string, CompletedSubagentResult>
 
 function getSubagentCompletionStatus(
 	result: SubagentResult,
+	running?: Pick<RunningSubagent, "mode" | "autoExit">,
 ): SubagentCompletionStatus {
 	if (result.error === "cancelled") return "cancelled";
 	// Provider/network errors may set errorMessage with exitCode 0
 	// (Pi exits cleanly even when model calls fail after retry exhaustion).
 	if (result.errorMessage) return "failed";
 	if (getSubagentTerminalStopReason(result.summary)) return "failed";
-	return result.exitCode === 0 ? "completed" : "failed";
+	if (result.exitCode === 0) return "completed";
+	// Manual interactive children (auto-exit: false) complete when the operator
+	// closes the pane. A forced mux/pane close can leave the shell EXIT-trap with a
+	// non-zero status; if the child already produced a real final assistant message,
+	// that close is a successful operator close rather than a crash.
+	if (
+		running?.mode === "interactive" &&
+		running.autoExit === false &&
+		hasRealSubagentOutput(result.summary)
+	) {
+		return "completed";
+	}
+	return "failed";
+}
+
+/**
+ * True when the summary is a real child result rather than a watcher fallback
+ * for a child that exited without answering. Used to tell an operator pane-close
+ * of a manual interactive child apart from a crash before it produced output.
+ */
+function hasRealSubagentOutput(summary: string | undefined): boolean {
+	const text = (summary ?? "").trim();
+	if (!text) return false;
+	return (
+		!text.startsWith("Sub-agent exited with code ") &&
+		text !== "Sub-agent exited without output"
+	);
 }
 
 export function buildCompletedSubagentResult(
@@ -31,7 +58,7 @@ export function buildCompletedSubagentResult(
 		id: running.id,
 		agent: running.agent,
 		mode: running.mode,
-		status: getSubagentCompletionStatus(result),
+		status: getSubagentCompletionStatus(result, running),
 		deliveryState: running.deliveryState,
 		parentClosePolicy: running.parentClosePolicy,
 		async: running.async !== false,

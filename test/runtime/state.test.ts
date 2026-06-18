@@ -51,6 +51,51 @@ describe("getSubagentCompletionStatus (via buildCompletedSubagentResult)", () =>
 		assert.equal(result.exitCode, 0);
 	});
 
+	it("treats an operator-closed manual interactive child as completed when it produced output", () => {
+		// Manual interactive children (auto-exit: false) complete when the operator
+		// closes the pane. A forced pane close can leave the shell exit trap with a
+		// non-zero status, but the child already wrote a real final assistant message,
+		// so the close is a successful operator close — not a failure.
+		const result = buildCompletedSubagentResult(
+			makeRunning({ mode: "interactive", autoExit: false }),
+			makeResult({ exitCode: 1, summary: "TMP_INTERACTIVE_MANUAL_READY" }),
+		);
+		assert.equal(result.status, "completed");
+	});
+
+	it("keeps a manual interactive child failed when it produced no output", () => {
+		// A crash before the child answered still looks like a failure even for
+		// manual interactive children: the operator-close carve-out only applies
+		// when there is a real final message to return.
+		const result = buildCompletedSubagentResult(
+			makeRunning({ mode: "interactive", autoExit: false }),
+			makeResult({ exitCode: 1, summary: "Sub-agent exited with code 1" }),
+		);
+		assert.equal(result.status, "failed");
+	});
+
+	it("keeps a manual interactive child failed on an explicit provider error", () => {
+		const result = buildCompletedSubagentResult(
+			makeRunning({ mode: "interactive", autoExit: false }),
+			makeResult({ exitCode: 1, summary: "partial work", errorMessage: "529 Overloaded" }),
+		);
+		assert.equal(result.status, "failed");
+	});
+
+	it("does not apply the manual-close carve-out to auto-exit or background children", () => {
+		const interactiveAutoExit = buildCompletedSubagentResult(
+			makeRunning({ mode: "interactive", autoExit: true }),
+			makeResult({ exitCode: 1, summary: "TMP_INTERACTIVE_AUTO_OK" }),
+		);
+		assert.equal(interactiveAutoExit.status, "failed");
+
+		const backgroundManual = buildCompletedSubagentResult(
+			makeRunning({ mode: "background", autoExit: false }),
+			makeResult({ exitCode: 1, summary: "TMP_BACKGROUND_MANUAL_OK" }),
+		);
+		assert.equal(backgroundManual.status, "failed");
+	});
+
 	it("returns failed when exitCode is non-zero", () => {
 		const result = buildCompletedSubagentResult(
 			makeRunning(),
