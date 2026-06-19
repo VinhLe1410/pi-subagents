@@ -296,8 +296,7 @@ export async function resumeSubagentSession(
 			running.stderrTail = rememberTail(running.stderrTail, chunk);
 		});
 	} else {
-		const surfaceName = invocationMetadata?.sessionTitle ?? displayName;
-		const surface = createSurface(surfaceName);
+		const surface = createSurface(displayName);
 		await new Promise<void>((resolve) =>
 			setTimeout(resolve, runtime.getShellReadyDelayMs()),
 		);

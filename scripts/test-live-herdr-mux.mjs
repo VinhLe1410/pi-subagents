@@ -119,11 +119,6 @@ function listTabs() {
   return Array.isArray(result.tabs) ? result.tabs : [];
 }
 
-function listWorkspaces() {
-  const result = herdrResult("workspace list", ["workspace", "list"]);
-  return Array.isArray(result.workspaces) ? result.workspaces : [];
-}
-
 function closePaneQuiet(paneId) {
   if (!paneId) return;
   runHerdrQuiet(["pane", "close", paneId]);
@@ -132,11 +127,6 @@ function closePaneQuiet(paneId) {
 function closeTabQuiet(tabId) {
   if (!tabId) return;
   runHerdrQuiet(["tab", "close", tabId]);
-}
-
-function closeWorkspaceQuiet(workspaceId) {
-  if (!workspaceId) return;
-  runHerdrQuiet(["workspace", "close", workspaceId]);
 }
 
 function restoreWorkspaceQuiet(workspaceId, label) {
@@ -150,14 +140,6 @@ function sweepMarkedTabs(marker) {
   for (const tab of listTabs()) {
     if (typeof tab?.label === "string" && tab.label.includes(marker) && typeof tab.tab_id === "string") {
       closeTabQuiet(tab.tab_id);
-    }
-  }
-}
-
-function sweepMarkedWorkspaces(marker) {
-  for (const workspace of listWorkspaces()) {
-    if (typeof workspace?.label === "string" && workspace.label.includes(marker) && typeof workspace.workspace_id === "string") {
-      closeWorkspaceQuiet(workspace.workspace_id);
     }
   }
 }
@@ -252,7 +234,6 @@ async function runInner() {
 
   let childPaneId = "";
   let childTabId = "";
-  let childWorkspaceId = "";
   let splitPaneId = "";
   let workspaceId = "";
   let originalWorkspaceLabel = "";
@@ -296,15 +277,13 @@ async function runInner() {
     childPaneId = createSurface(`${marker} child`);
     const childPane = paneFromResult("pane get", ["pane", "get", childPaneId]);
     childTabId = childPane.tab_id;
-    childWorkspaceId = childPane.workspace_id;
-    if (!childWorkspaceId || childWorkspaceId === workspaceId) {
+    if (!childTabId || childTabId === parentPane.tabId) {
       throw new Error(
-        `Expected createSurface to create an isolated Herdr workspace. Parent workspace: ${workspaceId}; child pane: ${JSON.stringify(childPane)}`,
+        `Expected createSurface to create a non-shrinking Herdr tab. Parent tab: ${parentPane.tabId}; child pane: ${JSON.stringify(childPane)}`,
       );
     }
-    const childWorkspace = getHerdrWorkspace(childWorkspaceId);
-    if (!childWorkspace.label?.includes(`${marker} child`) || !/^\d+:\s/.test(childWorkspace.label)) {
-      throw new Error(`Expected numbered child workspace label for ${marker} child, got ${childWorkspace.label ?? "(missing)"}`);
+    if (childPane.workspace_id !== workspaceId) {
+      throw new Error(`Expected child workspace ${workspaceId}, got ${childPane.workspace_id ?? "(missing)"}`);
     }
 
     splitPaneId = createSurfaceSplit(`${marker} split`, "right", childPaneId);
@@ -312,8 +291,8 @@ async function runInner() {
     if (splitPane.tab_id !== childTabId) {
       throw new Error(`Expected explicit Herdr split to stay in child tab ${childTabId}, got ${splitPane.tab_id ?? "(missing)"}`);
     }
-    if (splitPane.workspace_id !== childWorkspaceId) {
-      throw new Error(`Expected split workspace ${childWorkspaceId}, got ${splitPane.workspace_id ?? "(missing)"}`);
+    if (splitPane.workspace_id !== workspaceId) {
+      throw new Error(`Expected split workspace ${workspaceId}, got ${splitPane.workspace_id ?? "(missing)"}`);
     }
 
     const shortToken = marker.split("-").at(-1) ?? String(Date.now());
@@ -342,9 +321,8 @@ async function runInner() {
       workspaceId,
       childPaneId,
       childTabId,
-      childWorkspaceId,
       splitPaneVerified: true,
-      nonShrinking: childWorkspaceId !== workspaceId,
+      nonShrinking: childTabId !== parentPane.tabId,
       commandReadVerified: syncScreen.includes(commandNeedle),
       asyncReadVerified: asyncScreen.includes(shellNeedle),
       titleRenameVerified: true,
@@ -360,7 +338,6 @@ async function runInner() {
       marker,
       childPaneId,
       childTabId,
-      childWorkspaceId,
       error: error instanceof Error ? error.stack ?? error.message : String(error),
     });
     process.exitCode = 1;
@@ -369,7 +346,7 @@ async function runInner() {
 
 async function runOuter() {
   if (process.env[OPT_IN_ENV] !== "1") {
-    console.log(`SKIP ${SCRIPT_NAME}: set ${OPT_IN_ENV}=1 to run the real live Herdr mux smoke. No Herdr surfaces were created.`);
+    console.log(`SKIP ${SCRIPT_NAME}: set ${OPT_IN_ENV}=1 to run the real live Herdr mux smoke. No Herdr panes or tabs were created.`);
     return;
   }
 
@@ -426,8 +403,8 @@ async function runOuter() {
     if (result.parentTabId !== parentTabId) {
       throw new Error(`Inner smoke ran in unexpected parent tab ${result.parentTabId}; expected ${parentTabId}`);
     }
-    if (result.nonShrinking !== true || !result.childWorkspaceId) {
-      throw new Error(`Herdr createSurface did not prove isolated workspace creation: ${JSON.stringify(result, null, 2)}`);
+    if (result.nonShrinking !== true || result.childTabId === parentTabId) {
+      throw new Error(`Herdr createSurface did not prove non-shrinking tab creation: ${JSON.stringify(result, null, 2)}`);
     }
     if (!result.commandReadVerified || !result.asyncReadVerified || !result.titleRenameVerified || !result.closeCleanupVerified || !result.splitPaneVerified) {
       throw new Error(`Herdr mux live smoke did not verify all required behavior: ${JSON.stringify(result, null, 2)}`);
@@ -447,7 +424,6 @@ async function runOuter() {
           parentTabId: result.parentTabId,
           childPaneId: result.childPaneId,
           childTabId: result.childTabId,
-          childWorkspaceId: result.childWorkspaceId,
           nonShrinking: result.nonShrinking,
           splitPaneVerified: result.splitPaneVerified,
           commandReadVerified: result.commandReadVerified,
@@ -462,7 +438,6 @@ async function runOuter() {
     );
   } finally {
     restoreWorkspaceQuiet(workspaceId, originalWorkspaceLabel);
-    sweepMarkedWorkspaces(marker);
     sweepMarkedTabs(marker);
     closeTabQuiet(parentTabId);
     closePaneQuiet(parentPaneId);

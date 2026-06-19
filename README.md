@@ -34,7 +34,7 @@ Two axes matter:
 - `interactive` or `background`: where the child runs
 - async or sync: whether the parent waits
 
-`interactive` means foreground. Pi opens a visible surface through Herdr, cmux, tmux, zellij, or WezTerm. Normal launches use a backend-specific surface, such as a workspace, tab, window, split, or stacked pane.
+`interactive` means foreground. Pi opens a visible surface through Herdr, cmux, tmux, zellij, or WezTerm. Normal launches use a backend-specific surface, such as a tab, window, split, or stacked pane.
 
 `background` means headless. Pi starts a `pi -p` child process without opening a pane.
 
@@ -48,7 +48,7 @@ Start `pi` inside the backend you want to use. Leave `PI_SUBAGENT_MUX` unset to 
 
 The backend command must exist, and Pi must be able to see the current pane or session context. If no supported backend is active, interactive launches fail with a setup hint.
 
-Normal launches use a backend-specific surface. Herdr creates a numbered workspace named after the child session. Other backends may use tabs, windows, splits, or stacked panes.
+Normal launches use a backend-specific surface. Herdr creates a new tab in the parent workspace, labeled with the child session title such as `[reviewer] Auth implementation review`. Other backends may use windows, splits, or stacked panes.
 
 ### Orchestrator mode
 
@@ -601,7 +601,7 @@ node --test test/mux/herdr.test.ts
 node --test test/launch/herdr-interactive-launch.test.ts
 ```
 
-The mux test covers Herdr detection, forced preferences, adapter error reporting, numbered workspace creation, split limitations, command send, screen reads, title and workspace labels, and cleanup. The launch test covers Herdr parity for cwd, env, flags, trust-project approval, session settings, model and thinking resolution, tool narrowing, skills, lifecycle policy, and explicit `PI_SUBAGENT_MUX=herdr` selection.
+The mux test covers Herdr detection, forced preferences, adapter error reporting, non-shrinking tab creation in the parent workspace, split limitations, command send, screen reads, title and workspace labels, and cleanup. The launch test covers Herdr parity for cwd, env, flags, trust-project approval, session settings, model and thinking resolution, tool narrowing, skills, lifecycle policy, and explicit `PI_SUBAGENT_MUX=herdr` selection.
 
 Live tests:
 
@@ -639,7 +639,7 @@ PI_SUBAGENT_LIVE_MODEL=provider/model[:thinking] \
 npm run test:live-herdr-pi
 ```
 
-Both Herdr smoke scripts check the `herdr` command, server running status, and protocol compatibility before mutating surfaces. They label created workspaces and panes with a unique marker, then close marked surfaces during cleanup.
+Both Herdr smoke scripts check the `herdr` command, server running status, and protocol compatibility before mutating panes. They label created tabs and panes with a unique marker, then close marked surfaces during cleanup.
 
 Herdr validation record for this release:
 

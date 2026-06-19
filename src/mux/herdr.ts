@@ -33,19 +33,12 @@ export type HerdrWorkspace = {
 	workspaceId: string;
 	activeTabId?: string;
 	label?: string;
-	number?: number;
 	focused?: boolean;
 	tabCount?: number;
 	paneCount?: number;
 };
 
 export type HerdrCreatedTabSurface = {
-	tab: HerdrTab;
-	pane: HerdrPane;
-};
-
-export type HerdrCreatedWorkspaceSurface = {
-	workspace: HerdrWorkspace;
 	tab: HerdrTab;
 	pane: HerdrPane;
 };
@@ -345,7 +338,6 @@ function parseWorkspace(value: unknown, operation: string): HerdrWorkspace {
 		workspaceId,
 		activeTabId: stringField(value, "active_tab_id"),
 		label: stringField(value, "label"),
-		number: numberField(value, "number"),
 		focused: booleanField(value, "focused"),
 		tabCount: numberField(value, "tab_count"),
 		paneCount: numberField(value, "pane_count"),
@@ -355,12 +347,6 @@ function parseWorkspace(value: unknown, operation: string): HerdrWorkspace {
 function closeHerdrTabQuiet(tabId: string): void {
 	try {
 		runHerdrApi("tab close", ["tab", "close", tabId]);
-	} catch {}
-}
-
-function closeHerdrWorkspaceQuiet(workspaceId: string): void {
-	try {
-		runHerdrApi("workspace close", ["workspace", "close", workspaceId]);
 	} catch {}
 }
 
@@ -376,23 +362,6 @@ function parseCreatedTabSurface(
 		};
 	} catch (error) {
 		closeHerdrTabQuiet(tab.tabId);
-		throw error;
-	}
-}
-
-function parseCreatedWorkspaceSurface(
-	result: Record<string, unknown>,
-	operation: string,
-): HerdrCreatedWorkspaceSurface {
-	const workspace = parseWorkspace(result.workspace, operation);
-	try {
-		return {
-			workspace,
-			tab: parseTab(result.tab, operation),
-			pane: parsePane(result.root_pane ?? result.pane, operation),
-		};
-	} catch (error) {
-		closeHerdrWorkspaceQuiet(workspace.workspaceId);
 		throw error;
 	}
 }
@@ -446,18 +415,6 @@ export function createHerdrTabSurface(options: {
 	args.push(options.focus ? "--focus" : "--no-focus");
 	const result = runHerdrApi("tab create", args);
 	return parseCreatedTabSurface(result, "tab create");
-}
-
-export function createHerdrWorkspaceSurface(options: {
-	label: string;
-	cwd: string;
-	focus?: boolean;
-}): HerdrCreatedWorkspaceSurface {
-	const args = ["workspace", "create"];
-	args.push("--cwd", options.cwd, "--label", options.label);
-	args.push(options.focus ? "--focus" : "--no-focus");
-	const result = runHerdrApi("workspace create", args);
-	return parseCreatedWorkspaceSurface(result, "workspace create");
 }
 
 export function splitHerdrPane(options: {

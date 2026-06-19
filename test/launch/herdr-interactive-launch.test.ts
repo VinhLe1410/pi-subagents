@@ -59,13 +59,8 @@ if [ "$*" = "pane current --current" ]; then
   exit 0
 fi
 
-if [ "$1" = "workspace" ] && [ "$2" = "create" ]; then
-  printf '%s\n' '{"id":"cli:workspace:create","result":{"type":"workspace_created","workspace":{"workspace_id":"w2","active_tab_id":"w2:t1","label":"Child","number":2,"focused":false,"tab_count":1,"pane_count":1},"tab":{"tab_id":"w2:t1","workspace_id":"w2","label":"1","focused":false,"pane_count":1},"root_pane":{"pane_id":"w2:p1","tab_id":"w2:t1","workspace_id":"w2","cwd":"/child","focused":false}}}'
-  exit 0
-fi
-
-if [ "$1" = "workspace" ] && [ "$2" = "rename" ]; then
-  printf '%s\n' '{"id":"cli:workspace:rename","result":{"type":"workspace_renamed"}}'
+if [ "$1" = "tab" ] && [ "$2" = "create" ]; then
+  printf '%s\n' '{"id":"cli:tab:create","result":{"type":"tab_created","tab":{"tab_id":"w1:t2","workspace_id":"w1","label":"Child","focused":false,"pane_count":1},"root_pane":{"pane_id":"w1:p2","tab_id":"w1:t2","workspace_id":"w1","cwd":"/child","focused":false}}}'
   exit 0
 fi
 
@@ -127,7 +122,7 @@ function extractTaskArtifactPath(commandText: string): string {
 }
 
 function readHerdrRunScript(log: string): string {
-	const match = log.match(/pane run w2:p1 '([^']+)'/);
+	const match = log.match(/pane run w1:p2 '([^']+)'/);
 	if (!match?.[1]) throw new Error("Expected Herdr launch command to run a staged shell script");
 	return readFileSync(match[1], "utf8");
 }
@@ -184,10 +179,10 @@ describe("Herdr interactive launch parity", () => {
 		);
 
 		assert.equal(running.mode, "interactive");
-		assert.equal(running.surface, "w2:p1");
+		assert.equal(running.surface, "w1:p2");
 		assert.equal(running.noSession, true);
 		assert.equal(running.modelContextWindow, 4096);
-		assert.deepEqual(waitedSurfaces, ["w2:p1"]);
+		assert.deepEqual(waitedSurfaces, ["w1:p2"]);
 
 		const metadata = readSubagentLaunchMetadataForTest(running.sessionFile);
 		assert.equal(metadata?.mode, "interactive");
@@ -201,17 +196,16 @@ describe("Herdr interactive launch parity", () => {
 		const log = readFileSync(logFile, "utf8");
 		assert.match(log, /status server --json/);
 		assert.match(log, /pane current --current/);
-		assert.match(log, /workspace create --cwd .* --label \[path-session\] Path session child --no-focus/);
-		assert.match(log, /workspace rename w2 2: \[path-session\] Path session child/);
-		assert.match(log, /pane run w2:p1 /);
-		assert.doesNotMatch(log, /pane send-keys w2:p1 Enter/);
+		assert.match(log, /tab create --workspace w1 --cwd .* --label path-session-child --no-focus/);
+		assert.match(log, /pane run w1:p2 /);
+		assert.doesNotMatch(log, /pane send-keys w1:p2 Enter/);
 		const launchScript = readHerdrRunScript(log);
 		assert.match(launchScript, new RegExp(`cd '${childCwd.replace(/'/g, "'\\''")}' &&`));
 		assert.match(launchScript, new RegExp(`'--session' '${running.sessionFile.replace(/'/g, "'\\''")}'`));
 		assert.match(launchScript, /'--no-session'/);
 		assert.match(launchScript, /'--approve'/);
 		assert.match(launchScript, /CUSTOM_ENV='from-agent'/);
-		assert.match(launchScript, /PI_SUBAGENT_SURFACE='w2:p1'/);
+		assert.match(launchScript, /PI_SUBAGENT_SURFACE='w1:p2'/);
 		assert.match(launchScript, /'--alpha' 'two words'/);
 	});
 
@@ -264,7 +258,7 @@ describe("Herdr interactive launch parity", () => {
 		);
 
 		assert.equal(running.mode, "interactive");
-		assert.equal(running.surface, "w2:p1");
+		assert.equal(running.surface, "w1:p2");
 		assert.equal(running.async, false);
 		assert.equal(running.blocking, true);
 		assert.equal(running.autoExit, true);
@@ -277,12 +271,11 @@ describe("Herdr interactive launch parity", () => {
 		const log = readFileSync(logFile, "utf8");
 		assert.match(log, /status server --json/);
 		assert.match(log, /pane current --current/);
-		assert.match(log, /workspace create --cwd .* --label \[forced-herdr\] Forced herdr child --no-focus/);
-		assert.match(log, /workspace rename w2 2: \[forced-herdr\] Forced herdr child/);
-		assert.match(log, /pane run w2:p1 /);
-		assert.doesNotMatch(log, /pane send-keys w2:p1 Enter/);
+		assert.match(log, /tab create --workspace w1 --cwd .* --label forced-herdr-child --no-focus/);
+		assert.match(log, /pane run w1:p2 /);
+		assert.doesNotMatch(log, /pane send-keys w1:p2 Enter/);
 		const launchScript = readHerdrRunScript(log);
-		assert.match(launchScript, /PI_SUBAGENT_SURFACE='w2:p1'/);
+		assert.match(launchScript, /PI_SUBAGENT_SURFACE='w1:p2'/);
 	});
 
 	it("launches interactive Herdr children with resolved capability, model, and lifecycle facts", async () => {
@@ -363,7 +356,7 @@ describe("Herdr interactive launch parity", () => {
 		);
 
 		assert.equal(running.mode, "interactive");
-		assert.equal(running.surface, "w2:p1");
+		assert.equal(running.surface, "w1:p2");
 		assert.equal(running.autoExit, true);
 		assert.equal(running.async, false);
 		assert.equal(running.blocking, true);
@@ -391,10 +384,9 @@ describe("Herdr interactive launch parity", () => {
 		assert.equal(metadata?.noContextFiles, true);
 
 		const log = readFileSync(logFile, "utf8");
-		assert.match(log, /workspace create --cwd .* --label \[capability-lifecycle\] Capability child --no-focus/);
-		assert.match(log, /workspace rename w2 2: \[capability-lifecycle\] Capability child/);
-		assert.match(log, /pane run w2:p1 /);
-		assert.doesNotMatch(log, /pane send-keys w2:p1 Enter/);
+		assert.match(log, /tab create --workspace w1 --cwd .* --label capability-child --no-focus/);
+		assert.match(log, /pane run w1:p2 /);
+		assert.doesNotMatch(log, /pane send-keys w1:p2 Enter/);
 		const launchScript = readHerdrRunScript(log);
 		assert.match(launchScript, /PI_SUBAGENT_AUTO_EXIT='1'/);
 		assert.match(launchScript, /PI_DENY_TOOLS='subagent,subagent_resume,grep,set_tab_title'/);
