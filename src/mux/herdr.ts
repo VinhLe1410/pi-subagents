@@ -25,6 +25,7 @@ export type HerdrTab = {
 	tabId: string;
 	workspaceId?: string;
 	label?: string;
+	number?: number;
 	focused?: boolean;
 	paneCount?: number;
 };
@@ -319,6 +320,7 @@ function parseTab(value: unknown, operation: string): HerdrTab {
 		tabId,
 		workspaceId: stringField(value, "workspace_id"),
 		label: stringField(value, "label"),
+		number: numberField(value, "number"),
 		focused: booleanField(value, "focused"),
 		paneCount: numberField(value, "pane_count"),
 	};

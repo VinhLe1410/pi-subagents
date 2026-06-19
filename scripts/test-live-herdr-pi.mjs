@@ -236,18 +236,23 @@ function findParentSession(sessionDir, doneText) {
   return null;
 }
 
-function findObservedChildTab(childName, parentTabId) {
+function childTabMatches(scenario, tab) {
+  const label = typeof tab?.label === "string" ? tab.label : "";
+  return label.includes(`[${scenario.agentName}]`);
+}
+
+function findObservedChildTab(scenario, parentTabId) {
   for (const tab of listTabs()) {
     if (tab?.tab_id === parentTabId) continue;
-    if (tab?.label === childName && typeof tab.tab_id === "string") {
+    if (childTabMatches(scenario, tab) && typeof tab.tab_id === "string") {
       return tab.tab_id;
     }
   }
   return "";
 }
 
-function isChildTabOpen(childName, childTabId) {
-  return listTabs().some((tab) => tab?.tab_id === childTabId || tab?.label === childName);
+function isChildTabOpen(scenario, childTabId) {
+  return listTabs().some((tab) => tab?.tab_id === childTabId || childTabMatches(scenario, tab));
 }
 
 function findChildSession(sessionDir, scenario) {
@@ -268,11 +273,11 @@ function childHasDoneText(child, scenario) {
 async function waitForManualInteractiveChildReady(ctx, scenario, childTabId) {
   const child = findChildSession(ctx.sessionDir, scenario);
   if (!child || !childHasDoneText(child, scenario)) return false;
-  if (!isChildTabOpen(scenario.childName, childTabId)) {
+  if (!isChildTabOpen(scenario, childTabId)) {
     throw new Error(`Manual interactive child ${scenario.childName} closed before operator close`);
   }
   await sleep(2000);
-  if (!isChildTabOpen(scenario.childName, childTabId)) {
+  if (!isChildTabOpen(scenario, childTabId)) {
     throw new Error(`Manual interactive child ${scenario.childName} auto-closed instead of waiting for the operator`);
   }
   return true;
@@ -348,7 +353,7 @@ async function waitForScenarioOutcome(ctx, scenario, parentPaneId, parentTabId) 
   let operatorClosedChild = false;
 
   while (Date.now() < deadline) {
-    observedChildTabId ||= findObservedChildTab(scenario.childName, parentTabId);
+    observedChildTabId ||= findObservedChildTab(scenario, parentTabId);
     if (scenario.operatorCloses && observedChildTabId && !operatorClosedChild) {
       const ready = await waitForManualInteractiveChildReady(ctx, scenario, observedChildTabId);
       if (ready) {
@@ -382,14 +387,13 @@ async function waitForScenarioOutcome(ctx, scenario, parentPaneId, parentTabId) 
   );
 }
 
-async function waitForChildSurfaceCleanup(childName, childTabId) {
+async function waitForChildSurfaceCleanup(scenario, childTabId) {
   const deadline = Date.now() + CHILD_CLEANUP_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    const leaked = listTabs().find((tab) => tab?.tab_id === childTabId || tab?.label === childName);
-    if (!leaked) return;
+    if (!isChildTabOpen(scenario, childTabId)) return;
     await sleep(POLL_INTERVAL_MS);
   }
-  throw new Error(`Herdr child surface ${childName} (${childTabId}) was still present after child completion`);
+  throw new Error(`Herdr child surface ${scenario.childName} (${childTabId}) was still present after child completion`);
 }
 
 async function waitForFile(path, timeoutMs = 15_000) {
@@ -582,7 +586,7 @@ async function runScenario(ctx, scenario, liveModel) {
     const outcome = await waitForScenarioOutcome(ctx, scenario, parentPaneId, parentTabId);
     observedChildTabId = outcome.observedChildTabId;
     if (scenario.expectChildTab && !observedChildTabId) {
-      throw new Error(`Did not observe a Herdr child tab labelled ${scenario.childName} while ${scenario.name} scenario ran`);
+      throw new Error(`Did not observe a Herdr child tab for ${scenario.childName} while ${scenario.name} scenario ran`);
     }
     if (!scenario.expectChildTab && observedChildTabId) {
       throw new Error(`Background scenario ${scenario.name} unexpectedly opened Herdr child tab ${observedChildTabId}`);
@@ -595,7 +599,7 @@ async function runScenario(ctx, scenario, liveModel) {
     const { metadata } = validateChildSession(ctx, scenario, childSessionFile);
     await validateChildProbe(scenario, metadata.cwd);
     if (scenario.expectChildTab) {
-      await waitForChildSurfaceCleanup(scenario.childName, observedChildTabId);
+      await waitForChildSurfaceCleanup(scenario, observedChildTabId);
     }
 
     return {
@@ -614,7 +618,7 @@ async function runScenario(ctx, scenario, liveModel) {
       parentVisibleOutcome: outcome.toolResult.details.status,
     };
   } finally {
-    sweepTabsByLabels([ctx.marker, scenario.childName]);
+    sweepTabsByLabels([ctx.marker, scenario.agentName, scenario.childName]);
     closeTabQuiet(parentTabId);
     closePaneQuiet(parentPaneId);
     closeTabQuiet(observedChildTabId);
@@ -763,7 +767,7 @@ async function runOuter() {
     );
   } finally {
     try {
-      sweepTabsByLabels([ctx.marker, ...ctx.scenarios.map((scenario) => scenario.childName)]);
+      sweepTabsByLabels([ctx.marker, ...ctx.scenarios.flatMap((scenario) => [scenario.agentName, scenario.childName])]);
     } catch {}
     try {
       execFileSync("pkill", ["-f", ctx.tmpRoot], { stdio: "ignore" });

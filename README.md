@@ -48,7 +48,7 @@ Start `pi` inside the backend you want to use. Leave `PI_SUBAGENT_MUX` unset to 
 
 The backend command must exist, and Pi must be able to see the current pane or session context. If no supported backend is active, interactive launches fail with a setup hint.
 
-Normal launches use a backend-specific surface. Herdr creates a new tab in the parent workspace, labeled with the child session title such as `[reviewer] Auth implementation review`. Other backends may use windows, splits, or stacked panes.
+Normal launches use a backend-specific surface. Herdr creates a new tab in the parent workspace and labels it with the child session title prefixed by the tab number, such as `2: [reviewer] Auth implementation review`. Other backends may use windows, splits, or stacked panes.
 
 ### Orchestrator mode
 
@@ -601,7 +601,7 @@ node --test test/mux/herdr.test.ts
 node --test test/launch/herdr-interactive-launch.test.ts
 ```
 
-The mux test covers Herdr detection, forced preferences, adapter error reporting, non-shrinking tab creation in the parent workspace, split limitations, command send, screen reads, title and workspace labels, and cleanup. The launch test covers Herdr parity for cwd, env, flags, trust-project approval, session settings, model and thinking resolution, tool narrowing, skills, lifecycle policy, and explicit `PI_SUBAGENT_MUX=herdr` selection.
+The mux test covers Herdr detection, forced preferences, adapter error reporting, non-shrinking numbered-tab creation in the parent workspace, split limitations, command send, screen reads, title and workspace labels, and cleanup. The launch test covers Herdr parity for cwd, env, flags, trust-project approval, session settings, model and thinking resolution, tool narrowing, skills, lifecycle policy, and explicit `PI_SUBAGENT_MUX=herdr` selection.
 
 Live tests:
 

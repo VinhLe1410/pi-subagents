@@ -1,6 +1,7 @@
 import {
 	createHerdrTabSurface,
 	getHerdrCurrentPane,
+	getHerdrTab,
 	renameHerdrTab,
 	renameHerdrWorkspace,
 	splitHerdrPane,
@@ -15,6 +16,16 @@ function assertSupportedHerdrSplitDirection(
 	throw new Error(
 		`Herdr split direction "${direction}" is unsupported; Herdr pane split supports only right and down`,
 	);
+}
+
+function numberedHerdrTabTitle(title: string, tabNumber: number | undefined): string {
+	if (tabNumber === undefined) return title;
+	const cleanTitle = title.replace(/^\d+:\s*/, "").trim();
+	return `${tabNumber}: ${cleanTitle}`;
+}
+
+function isSubagentProcess(): boolean {
+	return !!(process.env.PI_SUBAGENT_NAME || process.env.PI_SUBAGENT_SESSION);
 }
 
 export function createHerdrSurface(name: string): string {
@@ -32,6 +43,10 @@ export function createHerdrSurface(name: string): string {
 		);
 	}
 
+	renameHerdrTab(
+		surface.tab.tabId,
+		numberedHerdrTabTitle(name, surface.tab.number),
+	);
 	return surface.pane.paneId;
 }
 
@@ -68,7 +83,13 @@ function currentHerdrWorkspaceId(): string {
 }
 
 export function renameHerdrCurrentTab(title: string): void {
-	renameHerdrTab(currentHerdrTabId(), title);
+	const tabId = currentHerdrTabId();
+	if (!isSubagentProcess()) {
+		renameHerdrTab(tabId, title);
+		return;
+	}
+	const tab = getHerdrTab(tabId);
+	renameHerdrTab(tabId, numberedHerdrTabTitle(title, tab.number));
 }
 
 export function renameHerdrCurrentWorkspace(title: string): void {
