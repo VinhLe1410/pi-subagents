@@ -29,14 +29,10 @@ export function renderAgentListReminder(
 ): string {
 	const agentLines = entries.map((entry) => `- \`${entry.name}\`: ${entry.description}`);
 	const body = [
-		"You can launch separate helper agents with the subagent tool. Use this roster to choose exact agent names.",
+		"Subagent roster:",
 		"<subagent-roster>",
 		agentLines.join("\n"),
 		"</subagent-roster>",
-		"<subagent-rules>",
-		"- Subagents do not have previous conversation context by default; always give the task proper context and completion criteria.",
-		"- If the user names an agent that is not listed, say it was not found and stop; do not suggest a different listed agent.",
-		"</subagent-rules>",
 	].join("\n");
 	return `<system-reminder>\n${body}\n</system-reminder>`;
 }

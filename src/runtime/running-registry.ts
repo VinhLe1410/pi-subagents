@@ -2,8 +2,6 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type {
 	CompletedSubagentResult,
 	RunningSubagent,
-	StartedSubagentToolDetails,
-	SubagentResult,
 } from "../types.ts";
 import {
 	clearSubagentShutdownTimer,
@@ -12,7 +10,6 @@ import {
 } from "./state.ts";
 import {
 	deliverCompletedSubagentResult,
-	routeSubagentOutcome,
 } from "./result-router.ts";
 
 export interface RunningRegistryRuntime {
@@ -20,33 +17,6 @@ export interface RunningRegistryRuntime {
 	updateWidget(): void;
 	waitForSubagentResult(params: { id: string }, signal?: AbortSignal): Promise<unknown>;
 	asSubagentToolResult(result: unknown): any;
-}
-
-export function findRunningSubagent(query: string): {
-	running?: RunningSubagent;
-	error?: string;
-} {
-	const byId = runningSubagents.get(query);
-	if (byId) return { running: byId };
-
-	const exactNameMatches = [...runningSubagents.values()].filter(
-		(agent) => agent.name === query,
-	);
-	if (exactNameMatches.length === 1) return { running: exactNameMatches[0] };
-	if (exactNameMatches.length > 1) {
-		return { error: `Multiple subagents named "${query}". Use the id instead.` };
-	}
-
-	const normalizedQuery = query.toLowerCase();
-	const ciMatches = [...runningSubagents.values()].filter(
-		(agent) => agent.name.toLowerCase() === normalizedQuery,
-	);
-	if (ciMatches.length === 1) return { running: ciMatches[0] };
-	if (ciMatches.length > 1) {
-		return { error: `Multiple subagents named "${query}". Use the id instead.` };
-	}
-
-	return { error: `No running subagent matches "${query}".` };
 }
 
 export function findTrackedSubagent(query: string): {
@@ -136,24 +106,6 @@ export function stopRunningSubagent(
 	}
 }
 
-export function getStartedSubagentDetails(
-	running: RunningSubagent,
-): StartedSubagentToolDetails & Record<string, unknown> {
-	return {
-		id: running.id,
-		name: running.name,
-		title: running.title,
-		task: running.task,
-		agent: running.agent,
-		sessionFile: running.noSession ? undefined : running.sessionFile,
-		noSession: running.noSession,
-		status: "started" as const,
-		deliveryState: running.deliveryState,
-		parentClosePolicy: running.parentClosePolicy,
-		autoExit: running.autoExit,
-	};
-}
-
 export async function getLaunchedSubagentResult(
 	running: RunningSubagent,
 	runtime: RunningRegistryRuntime,
@@ -166,11 +118,6 @@ export async function getLaunchedSubagentResult(
 	return runtime.asSubagentToolResult(result);
 }
 
-/** Normal subagent launches are awaited-only. */
-export function shouldAwaitSubagentLaunch(): boolean {
-	return true;
-}
-
 export function deliverCompletedSubagentResultViaSteer(
 	pi: Pick<ExtensionAPI, "sendMessage">,
 	cached: CompletedSubagentResult,
@@ -179,68 +126,3 @@ export function deliverCompletedSubagentResultViaSteer(
 	return deliverCompletedSubagentResult(pi, cached, formatElapsed);
 }
 
-export function routeDetachedSubagentCompletion(
-	pi: ExtensionAPI,
-	running: RunningSubagent,
-	result: SubagentResult,
-	formatElapsed: (elapsed: number) => string,
-	updateWidget: () => void,
-): CompletedSubagentResult {
-	const routed = routeSubagentOutcome({
-		pi,
-		running,
-		result,
-		formatElapsed,
-		updateWidget,
-	});
-	return routed.completed;
-}
-
-function handleDetachedSubagentOutcome(
-	pi: ExtensionAPI,
-	running: RunningSubagent,
-	result: SubagentResult,
-	formatElapsed: (elapsed: number) => string,
-	updateWidget: () => void,
-): void {
-	routeSubagentOutcome({
-		pi,
-		running,
-		result,
-		formatElapsed,
-		updateWidget,
-	});
-}
-
-export function wireSubagentSteerBack(
-	pi: ExtensionAPI,
-	running: RunningSubagent,
-	watchPromise: Promise<SubagentResult>,
-	formatElapsed: (elapsed: number) => string,
-	updateWidget: () => void,
-): void {
-	watchPromise
-		.then((result) => {
-			handleDetachedSubagentOutcome(pi, running, result, formatElapsed, updateWidget);
-		})
-		.catch((err) => {
-			runningSubagents.delete(running.id);
-			updateWidget();
-			pi.sendMessage(
-				{
-					customType: "subagent_result",
-					content: `Sub-agent "${running.name}" error: ${err?.message ?? String(err)}`,
-					display: true,
-					details: {
-						id: running.id,
-						name: running.name,
-						task: running.task,
-						deliveryState: running.deliveryState,
-						parentClosePolicy: running.parentClosePolicy,
-						error: err?.message,
-					},
-				},
-				{ triggerTurn: true, deliverAs: "steer" },
-			);
-		});
-}

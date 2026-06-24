@@ -6,7 +6,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { AgentDefaults } from "../agents/definitions.ts";
@@ -71,11 +71,6 @@ export function generateSubagentSessionFile(sessionDir: string): string {
 		Math.random().toString(16).slice(2, 6),
 	].join("-");
 	return join(sessionDir, `${ts}_${uuid}.jsonl`);
-}
-
-export function getDoneSentinelFile(sessionFile: string, id: string): string {
-	const base = basename(sessionFile, ".jsonl");
-	return join(tmpdir(), `pi-subagent-done-${base}-${id}.txt`);
 }
 
 function writeHeaderOnlySubagentSessionFile(
@@ -240,7 +235,7 @@ export function writeSubagentModelStateEntries(
 	);
 }
 
-export function writeSubagentLaunchMetadataEntry(
+function writeSubagentLaunchMetadataEntry(
 	path: string,
 	metadata: PersistedSubagentLaunchMetadata,
 ): void {
@@ -282,7 +277,7 @@ export async function writeSubagentLaunchMetadataEntryWhenReady(
 	writeSubagentLaunchMetadataEntry(path, metadata);
 }
 
-export function isResumeMode(value: unknown): value is ResumeMode {
+function isResumeMode(value: unknown): value is ResumeMode {
 	return value === "interactive" || value === "background";
 }
 

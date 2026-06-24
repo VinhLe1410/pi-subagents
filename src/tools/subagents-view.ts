@@ -3,8 +3,6 @@ import { completedSubagentResults, runningSubagents } from "../runtime/state.ts"
 import { getEffectiveAgentDefinitions } from "../agents/definitions.ts";
 import { SubagentsOverlayController, type OverlayRuntime } from "./overlay/index.ts";
 
-export { SubagentsOverlayController as SubagentsOverlay } from "./overlay/index.ts";
-
 export function registerSubagentsView(pi: ExtensionAPI, runtime: OverlayRuntime) {
 	let activeOverlay: SubagentsOverlayController | null = null;
 

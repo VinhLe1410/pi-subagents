@@ -14,7 +14,7 @@ import {
 	shouldMarkUserTookOver,
 } from "../auto-exit.ts";
 
-export function getDeniedToolNames(
+function getDeniedToolNames(
 	autoExit: boolean,
 	deniedEnv = process.env.PI_DENY_TOOLS ?? "",
 ): string[] {
@@ -26,7 +26,7 @@ export function getDeniedToolNames(
 	return denied;
 }
 
-export function filterToolNames(
+function filterToolNames(
 	toolNames: string[],
 	deniedTools: string[],
 ): string[] {
@@ -39,60 +39,11 @@ export function filterToolNames(
 	});
 }
 
-export function shouldRegisterSubagentDone(
-	_autoExit: boolean,
-	_deniedTools: string[],
-	_isInteractive = false,
-): boolean {
-	return false;
-}
-
-type ToolControlAPI = Pick<
-	ExtensionAPI,
-	"getAllTools" | "getActiveTools" | "setActiveTools" | "registerTool"
->;
-
 type WidgetThemeLike = {
 	bg(tone: string, text: string): string;
 	bold(text: string): string;
 	fg(tone: string, text: string): string;
 };
-
-export function installDeniedToolGuards(
-	pi: ToolControlAPI,
-	autoExit: boolean,
-	onChange?: (activeTools: string[], deniedTools: string[]) => void,
-) {
-	const originalRegisterTool = pi.registerTool.bind(pi);
-	const originalSetActiveTools = pi.setActiveTools.bind(pi);
-
-	const notify = (activeTools: string[], deniedTools: string[]) => {
-		onChange?.([...activeTools].sort(), [...deniedTools]);
-	};
-
-	const applyDeniedTools = (): string[] => {
-		const deniedTools = getDeniedToolNames(autoExit);
-		const allowedTools = filterToolNames(pi.getActiveTools(), deniedTools);
-		originalSetActiveTools(allowedTools);
-		notify(allowedTools, deniedTools);
-		return allowedTools;
-	};
-
-	pi.setActiveTools = (toolNames: string[]) => {
-		const deniedTools = getDeniedToolNames(autoExit);
-		const allowedTools = filterToolNames(toolNames, deniedTools);
-		originalSetActiveTools(allowedTools);
-		notify(allowedTools, deniedTools);
-	};
-
-	pi.registerTool = (definition) => {
-		const result = originalRegisterTool(definition);
-		applyDeniedTools();
-		return result;
-	};
-
-	return { applyDeniedTools };
-}
 
 export default function (pi: ExtensionAPI) {
 	const autoExit = process.env.PI_SUBAGENT_AUTO_EXIT === "1";

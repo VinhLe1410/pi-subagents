@@ -22,21 +22,20 @@ const SUBAGENT_NAME_DESCRIPTION =
 const SUBAGENT_TITLE_DESCRIPTION =
 	"Required human title for this child session/widget. Use sentence case, 3-8 words, outcome/objective focused, and not a prompt or instruction; examples: Auth implementation map, Local diff bug review.";
 
-const TASK_DESCRIPTION = "Task/prompt for the sub-agent. The child has no previous conversation context by default; include objective, needed context, scope, relevant files/facts, constraints, completion criteria, and expected output.";
+const TASK_DESCRIPTION = "Required task prompt. Keep it small, concrete, and self-contained; include context, scope, constraints, completion criteria, and expected output.";
 
 const SubagentChildParams = Type.Object({
 	name: Type.String({ description: SUBAGENT_NAME_DESCRIPTION }),
 	task: Type.String({ description: TASK_DESCRIPTION }),
 	title: Type.String({ description: SUBAGENT_TITLE_DESCRIPTION }),
-	agent: Type.String({ description: "Required agent definition name. Reads .pi/agents/<name>.md or ~/.pi/agent/agents/<name>.md and refuses ad-hoc unnamed subagents." }),
+	agent: Type.String({ description: "Required exact agent definition name from the subagent roster. Reads .pi/agents/<name>.md or ~/.pi/agent/agents/<name>.md." }),
 });
 
 const SubagentParams = Type.Object({
-	name: Type.Optional(Type.String({ description: SUBAGENT_NAME_DESCRIPTION })),
-	task: Type.Optional(Type.String({ description: TASK_DESCRIPTION })),
-	title: Type.Optional(Type.String({ description: SUBAGENT_TITLE_DESCRIPTION })),
-	agent: Type.Optional(Type.String({ description: "Required agent definition name for a single subagent launch." })),
-	children: Type.Optional(Type.Array(SubagentChildParams, { description: "Spawn multiple children in one deterministic launch. Use this instead of multiple separate subagent tool calls when the work can run in parallel." })),
+	children: Type.Array(SubagentChildParams, {
+		description: "Required array of subagent launches. Use this for every call, including a single subagent. Launch independent children together when work can run in parallel.",
+		minItems: 1,
+	}),
 });
 
 type ToolResult = ReturnType<typeof asSubagentToolResult>;
@@ -52,11 +51,11 @@ export interface SubagentToolRuntime {
 	getLaunchedSubagentResult(running: RunningSubagent, signal?: AbortSignal): Promise<ToolResult>;
 }
 
-type SubagentToolParams = Partial<SubagentParamsInput> & { children?: SubagentParamsInput[] };
+type SubagentToolParams = { children?: SubagentParamsInput[] };
 
 function getRequestedChildren(params: SubagentToolParams): SubagentParamsInput[] {
 	if (Array.isArray(params.children) && params.children.length > 0) return params.children;
-	return [params as SubagentParamsInput];
+	throw new Error("Error: subagent calls must use children:[...] with at least one child, even for a single subagent launch.");
 }
 
 export function getSubagentNameError(name: string | undefined): string | null {
@@ -208,22 +207,23 @@ export function registerSubagentCoreTools(
 		label: "Subagent",
 		description:
 			"Launch one or more named helper agents from the subagent roster and wait for completion. " +
-			"This call chooses the agent name(s), task(s), and titles. Agent definitions own model, tools, and prompt behavior.",
+			"Calls must use children:[...] even for a single subagent. Agent definitions own model, tools, and prompt behavior.",
 		promptSnippet:
-			"Subagents are separate hidden helper processes; this tool waits for completion and returns their results as tool output.\n" +
+			"Subagents are separate hidden helper processes, and this tool waits for their completion and returns their results as tool output.\n" +
 			"\n" +
-			"Use this tool when a listed agent is a clear fit for specialist, complex, or parallel work. Do small direct work yourself.\n" +
+			"Use this tool when a listed agent is a clear fit for a small slice of complex work, or for parallel work. Subagents are not as smart; do not hand them complex work.\n" +
 			"\n" +
 			"How to call:\n" +
+			"- Always call with children:[...], even for one subagent.\n" +
 			"- Use exact agent names from the roster. Do not invent or substitute agents.\n" +
-			"- Always provide name and title. name is a lower-kebab machine handle; title is a short human label.\n" +
-			"- If launching multiple helpers, use children:[...] so all helpers start before waiting.\n" +
-			"- Do not set model or thinking; agent markdown controls model defaults and missing values inherit from the parent.\n" +
+			"- Every child must include name, title, agent, and task.\n" +
+			"- name is a lower-kebab machine handle; title is a short human label.\n" +
 			"\n" +
 			"Writing tasks:\n" +
 			"- Children do not have previous conversation context by default.\n" +
-			"- Include the objective, needed context, scope, relevant files/facts, constraints, completion criteria, and expected output.\n" +
-			"- For parallel helpers, make each task self-contained and non-overlapping.\n" +
+			"- Keep each child task small, concrete, and self-contained.\n" +
+			"- Include objective, needed context, scope, relevant files/facts, constraints, completion criteria, and expected output.\n" +
+			"- For parallel helpers, make each task independent and non-overlapping.\n" +
 			"\n" +
 			"After launch: use the returned findings; do not poll, sleep-read, or inspect session files unless debugging.\n",
 		parameters: SubagentParams,
@@ -269,21 +269,17 @@ export function registerSubagentCoreTools(
 		},
 		renderCall(args, theme, context) {
 			const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-			const children = Array.isArray(args.children) ? args.children : undefined;
-			if (children?.length) {
-				const lines = [`▸ ${theme.fg("toolTitle", theme.bold("Spawn"))} ${theme.fg("toolTitle", theme.bold(`${children.length} agents`))}`, ""];
-				children.forEach((child, index) => {
-					if (index > 0) lines.push("");
-					const agent = child.agent ? theme.fg("dim", ` (${child.agent})`) : "";
-					lines.push(`${theme.fg("accent", theme.bold(child.name ?? "subagent"))}${agent}`);
-					const taskPreview = formatTaskPreview(child.task, context, theme).replace(/^\n/, "");
-					if (taskPreview) lines.push(taskPreview);
-				});
-				text.setText(lines.join("\n"));
-				return text;
-			}
-			const agent = args.agent ? theme.fg("dim", ` (${args.agent})`) : "";
-			text.setText("▸ " + theme.fg("toolTitle", theme.bold("Spawn")) + " " + theme.fg("accent", theme.bold(args.name ?? "subagent")) + agent + formatTaskPreview(args.task, context, theme));
+			const children = Array.isArray(args.children) ? args.children : [];
+			const label = children.length === 1 ? "1 agent" : `${children.length} agents`;
+			const lines = [`▸ ${theme.fg("toolTitle", theme.bold("Spawn"))} ${theme.fg("toolTitle", theme.bold(label))}`, ""];
+			children.forEach((child, index) => {
+				if (index > 0) lines.push("");
+				const agent = child.agent ? theme.fg("dim", ` (${child.agent})`) : "";
+				lines.push(`${theme.fg("accent", theme.bold(child.name ?? "subagent"))}${agent}`);
+				const taskPreview = formatTaskPreview(child.task, context, theme).replace(/^\n/, "");
+				if (taskPreview) lines.push(taskPreview);
+			});
+			text.setText(lines.join("\n"));
 			return text;
 		},
 		renderResult(result, options, theme, context) {

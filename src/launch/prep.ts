@@ -4,7 +4,6 @@ import { dirname, join } from "node:path";
 import type { AgentDefaults } from "../agents/definitions.ts";
 import { loadAgentDefaults as loadAgentDefaultsFromDefinitions } from "../agents/definitions.ts";
 
-import { CHILD_CONTEXT_BOUNDARY_SYSTEM_PROMPT } from "./context-boundary.ts";
 import {
 	resolveSubagentNoContextFiles,
 	resolveSubagentNoSession,
@@ -25,7 +24,6 @@ import {
 	type ModelRegistryLike,
 } from "./child-launch-plan.ts";
 export {
-	normalizeModelRef,
 	resolveAvailableModelRef,
 	splitModelRefThinking,
 } from "./child-launch-plan.ts";
@@ -218,24 +216,6 @@ export function getPreparedSessionLaunchArgs(
 		? ["--session", prepared.subagentSessionFile, "--no-session"]
 		: ["--session", prepared.subagentSessionFile];
 	if (prepared.sessionTitle) args.push("--name", prepared.sessionTitle);
-	return args;
-}
-
-export function getPersistedPromptLaunchArgs(
-	metadata: PersistedSubagentLaunchMetadata | undefined,
-): string[] {
-	const args: string[] = [];
-	if (metadata?.systemPromptMode && metadata.systemPrompt) {
-		args.push(
-			metadata.systemPromptMode === "replace"
-				? "--system-prompt"
-				: "--append-system-prompt",
-			metadata.systemPrompt,
-		);
-	}
-	if (metadata?.boundarySystemPrompt) {
-		args.push("--append-system-prompt", CHILD_CONTEXT_BOUNDARY_SYSTEM_PROMPT);
-	}
 	return args;
 }
 

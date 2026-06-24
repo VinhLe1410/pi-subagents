@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentDefaults } from "../agents/definitions.ts";
 import { getAgentConfigDir } from "../agents/definitions.ts";
@@ -10,18 +10,6 @@ export function resolveSubagentCwd(
 ): string {
 	if (!rawCwd) return baseCwd;
 	return rawCwd.startsWith("/") ? rawCwd : join(baseCwd, rawCwd);
-}
-
-export function resolveSubagentConfigDir(
-	rawCwd: string | null,
-	baseCwd = process.cwd(),
-): string | null {
-	const localAgentDir = join(
-		resolveSubagentCwd(rawCwd, baseCwd),
-		".pi",
-		"agent",
-	);
-	return existsSync(localAgentDir) ? localAgentDir : null;
 }
 
 export interface ResolvedSubagentRuntimePaths {

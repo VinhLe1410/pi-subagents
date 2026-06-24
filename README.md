@@ -42,18 +42,22 @@ There is no resume tool and no kill tool. If the parent tool call is cancelled, 
 
 ### `subagent` parameters
 
-Single child:
+All calls use `children`, even for a single child:
 
 ```json
 {
-  "name": "auth-scout",
-  "title": "Auth implementation map",
-  "agent": "worker",
-  "task": "Inspect the auth flow. Include relevant files, current behavior, risks, and completion criteria in your final summary."
+  "children": [
+    {
+      "name": "auth-scout",
+      "title": "Auth implementation map",
+      "agent": "worker",
+      "task": "Inspect the auth flow. Include relevant files, current behavior, risks, and completion criteria in your final summary."
+    }
+  ]
 }
 ```
 
-Parallel children:
+Parallel children use the same shape:
 
 ```json
 {
@@ -74,12 +78,16 @@ Parallel children:
 }
 ```
 
+Required per call:
+
+- `children`: non-empty array of child launches
+
 Required per child:
 
 - `name`: lower-kebab machine handle, 2-4 words, max 32 chars
 - `title`: short human label for UI/session display
 - `agent`: exact named agent definition
-- `task`: self-contained task prompt
+- `task`: small, concrete, self-contained task prompt
 
 The tool schema does not accept launch-time `model` or `thinking`. Model selection lives in the agent markdown file. If the agent file has no model/thinking, the child inherits the parent model/thinking.
 

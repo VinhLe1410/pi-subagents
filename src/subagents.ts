@@ -17,8 +17,6 @@ import {
 	resolveSubagentNoSession,
 } from "./launch/policy.ts";
 import { resolveSubagentCwd } from "./launch/runtime-paths.ts";
-export { resolveSubagentConfigDir } from "./launch/runtime-paths.ts";
-export { buildSkillLaunchPlan as buildSkillLaunchPlanForTest } from "./launch/skills.ts";
 import {
 	resolveEffectiveSessionMode as resolveEffectiveSessionModeFromSessionFiles,
 	resolveTaskSessionMode as resolveTaskSessionModeFromSessionFiles,
@@ -37,23 +35,8 @@ import {
 	watchBackgroundSubagent,
 	widgetManager,
 } from "./runtime/wiring.ts";
-export {
-	getCompletedSubagentResultForTest,
-	getLaunchedSubagentResultForTest,
-	getPiInvocationForTest,
-	getPiShellPartsForTest,
-	getStartedSubagentDetailsForTest,
-	getSubagentChildProcessEnvForTest,
-	renderSubagentWidgetForTest,
-	resetSubagentStateForTest,
-	routeDetachedSubagentCompletionForTest,
-	setRunningSubagentForTest,
-	shutdownSubagentsForTest,
-	waitForSubagentForTest,
-} from "./runtime/wiring.ts";
 import {
 	resetSubagentBatchStopRequest,
-	stopAfterCurrentSubagentBatch,
 } from "./runtime/state.ts";
 import { SUBAGENT_TOOL_NAME } from "./tools/tool-names.ts";
 import { registerSubagentCommands } from "./tools/commands.ts";
@@ -61,14 +44,7 @@ import { registerSubagentMessageRenderers } from "./tools/message-renderers.ts";
 import { markInitialPromptLaunchComplete, registerSubagentCoreTools } from "./tools/subagent-tools.ts";
 import { registerSubagentsView } from "./tools/subagents-view.ts";
 
-export { markSubagentBatchBlocking as markSubagentBatchBlockingForTest } from "./runtime/state.ts";
-export { requestSubagentBatchStop as requestSubagentBatchStopForTest } from "./runtime/state.ts";
-export { getSubagentBatchStopMetadata as getSubagentBatchStopMetadataForTest } from "./runtime/state.ts";
-export { shouldAwaitSubagentLaunch as shouldAwaitSubagentLaunchForTest } from "./runtime/running-registry.ts";
-export { classifyAssistantMessageForMixedBatch as classifyAssistantMessageForMixedBatchForTest } from "./runtime/batch-classifier.ts";
-export * from "./testing/test-helpers.ts";
-
-export function loadAgentDefaults(
+function loadAgentDefaults(
 	agentName: string,
 	cwdHint?: string | null,
 	baseCwd = process.cwd(),
@@ -200,12 +176,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 		markInitialPromptLaunchComplete();
 	});
 
-	// Clean up on real session shutdown. Pi also emits this event for the
-	// coordinator-only turn stop after async launches; that must not kill the
-	// children that the stop was created to leave running.
 	pi.on("session_shutdown", (_event, ctx) => {
-		if (stopAfterCurrentSubagentBatch) return;
-
 		moduleAbortController.abort();
 		widgetManager.reset();
 		resetSubagentBatchStopRequest();

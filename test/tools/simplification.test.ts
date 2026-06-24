@@ -58,9 +58,9 @@ describe("simplified subagent surface", () => {
 			{ name: "code-scout", source: "project", description: "Inspect code." },
 		]);
 
+		assert.match(reminder, /Subagent roster:/);
 		assert.match(reminder, /`code-scout`: Inspect code\./);
-		assert.match(reminder, /do not have previous conversation context/);
-		assert.doesNotMatch(reminder, /tool_return|runs_as|model|session-mode|auto-exit|async/);
+		assert.doesNotMatch(reminder, /subagent-rules|tool_return|runs_as|model|session-mode|auto-exit|async/);
 	});
 
 	it("validates every batch child before launching any child", async () => {

@@ -1,56 +1,13 @@
 import type {
 	CompletedSubagentResult,
-	RunningSubagent,
-	SubagentResult,
 } from "../types.ts";
-import {
-	buildCompletedSubagentResult,
-	cacheCompletedSubagentResult,
-	clearSubagentShutdownTimer,
-	runningSubagents,
-	stopAfterCurrentSubagentBatch,
-} from "./state.ts";
 
 interface ParentMessageSink {
 	sendMessage(message: unknown, options: unknown): void;
 }
 
-export interface RouteSubagentOutcomeOptions {
-	pi: ParentMessageSink;
-	running: RunningSubagent;
-	result: SubagentResult;
-	formatElapsed(elapsed: number): string;
-	updateWidget(): void;
-}
-
-interface RoutedCompletionOutcome {
-	kind: "completion";
-	completed: CompletedSubagentResult;
-}
-
-export type RoutedSubagentOutcome = RoutedCompletionOutcome;
-
 function getResultLabel(result: Pick<CompletedSubagentResult, "name" | "agent">): string {
 	return result.agent ? `${result.name} (${result.agent})` : result.name;
-}
-
-export function routeSubagentOutcome(
-	options: RouteSubagentOutcomeOptions,
-): RoutedSubagentOutcome {
-	const { pi, running, result, formatElapsed, updateWidget } = options;
-	clearSubagentShutdownTimer(running);
-	const completed = running.allowSteerDelivery === false && !running.resultOwner
-		? buildCompletedSubagentResult(running, result)
-		: cacheCompletedSubagentResult(running, result);
-	runningSubagents.delete(running.id);
-	updateWidget();
-	if (running.allowSteerDelivery === false) {
-		return { kind: "completion", completed };
-	}
-	return {
-		kind: "completion",
-		completed: deliverCompletedSubagentResult(pi, completed, formatElapsed),
-	};
 }
 
 export function deliverCompletedSubagentResult(
@@ -62,7 +19,6 @@ export function deliverCompletedSubagentResult(
 		return completed;
 	}
 
-	const deliverAs = stopAfterCurrentSubagentBatch ? "nextTurn" : "steer";
 	completed.deliveredTo = "steer";
 	pi.sendMessage(
 		{
@@ -85,7 +41,7 @@ export function deliverCompletedSubagentResult(
 				...(completed.errorMessage ? { errorMessage: completed.errorMessage } : {}),
 			},
 		},
-		{ triggerTurn: true, deliverAs },
+		{ triggerTurn: true, deliverAs: "steer" },
 	);
 	return completed;
 }

@@ -83,7 +83,7 @@ export function splitModelRefThinking(
  *    explicit thinking level is also set, strip the embedded suffix.
  * 2. When no model is available at all, suppress both thinking and modelRef.
  */
-export function normalizeModelRef(
+function normalizeModelRef(
 	model: string | undefined,
 	thinking: string | undefined,
 ): { effectiveModel: string | undefined; effectiveThinking: string | undefined; effectiveModelRef: string | undefined } {

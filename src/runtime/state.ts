@@ -87,43 +87,7 @@ export function asSubagentToolResult(result: unknown): SubagentToolResult {
 }
 
 export const moduleAbortController = initializeModuleReloadState();
-export let stopAfterCurrentSubagentBatch = false;
-let currentSubagentBatchHasBlocking = false;
-
-export function resetSubagentBatchStopRequest(): void {
-	stopAfterCurrentSubagentBatch = false;
-	currentSubagentBatchHasBlocking = false;
-}
-
-export function markSubagentBatchBlocking(): void {
-	currentSubagentBatchHasBlocking = true;
-}
-
-export function isSubagentBatchBlocking(): boolean {
-	return currentSubagentBatchHasBlocking;
-}
-
-export function requestSubagentBatchStop(): void {
-	// Normal subagent launches are awaited-only; keep this as a compatibility
-	// no-op for older callers while removing coordinator-only terminate flow.
-}
-
-export function getCoordinatorOnlyTurnPrompt(): string {
-	return "Subagent launches are awaited: use the tool result directly and do not expect a later-message report.";
-}
-
-export function getSubagentBatchStopMetadata(): { terminate?: true } {
-	return {};
-}
-
-export function withSubagentBatchStop<T extends AgentToolResult<unknown>>(
-	result: T,
-): T & { terminate?: true } {
-	return {
-		...result,
-		...getSubagentBatchStopMetadata(),
-	};
-}
+export function resetSubagentBatchStopRequest(): void {}
 
 export function getWatcherSignal(
 	_running: RunningSubagent,
@@ -132,16 +96,3 @@ export function getWatcherSignal(
 	return watcherAbort.signal;
 }
 
-export function resetRuntimeStateForTest(
-	resetAmbient: () => void,
-): void {
-	resetAmbient();
-	for (const agent of runningSubagents.values()) {
-		clearSubagentShutdownTimer(agent);
-		agent.abortController?.abort();
-	}
-	runningSubagents.clear();
-	completedSubagentResults.clear();
-	resetSubagentBatchStopRequest();
-	widgetManager.reset();
-}

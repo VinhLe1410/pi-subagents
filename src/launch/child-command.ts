@@ -69,7 +69,7 @@ export function getPiInvocation(args: string[]): PiInvocation {
 	return { command: "pi", args };
 }
 
-export function shellEscape(s: string): string {
+function shellEscape(s: string): string {
 	return `'${s.replace(/'/g, "'\\''")}'`;
 }
 
