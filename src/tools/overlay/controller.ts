@@ -1,8 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Editor, matchesKey, Key, type Component, type EditorTheme } from "@earendil-works/pi-tui";
-import { completedSubagentResults } from "../../runtime/state.ts";
-import { resumeSubagentSession, type ResumeServiceRuntime } from "../../runtime/resume-service.ts";
-import type { RunningSubagent, SubagentResult } from "../../types.ts";
+import { matchesKey, Key, type Component } from "@earendil-works/pi-tui";
 import type { OverlayContext, OverlayItem, OverlayState, OverlayTui, TabId, Theme } from "./render-types.ts";
 import { TABS } from "./render-types.ts";
 import { renderHeader, renderFooter, getFooterHints } from "./render-frame.ts";
@@ -11,13 +8,9 @@ import { renderDetail, getMaxScroll } from "./render-detail.ts";
 import { buildRunningItems, buildCompletedItems, buildAgentItems } from "./data.ts";
 import { fitLine } from "./render-helpers.ts";
 
-export interface OverlayRuntime extends ResumeServiceRuntime {
+export interface OverlayRuntime {
 	pi: ExtensionAPI;
-	wireSubagentSteerBack: (
-		pi: ExtensionAPI,
-		r: RunningSubagent,
-		p: Promise<SubagentResult>,
-	) => void;
+	startWidgetRefresh(): void;
 }
 
 const TAB_ORDER: TabId[] = ["running", "completed", "agents"];
@@ -27,7 +20,6 @@ export class SubagentsOverlayController implements Component {
 	private completedLoadId = 0;
 	private ctx: ExtensionContext;
 	private done: (result: null) => void;
-	private editor: Editor;
 	private refreshTimer: ReturnType<typeof setInterval> | null = null;
 	private runtime: OverlayRuntime;
 	private theme: Theme;
@@ -53,8 +45,6 @@ export class SubagentsOverlayController implements Component {
 		this.theme = theme;
 		this.runtime = runtime;
 		this.tui = tui;
-		this.editor = new Editor(tui, createEditorTheme(theme), { paddingX: 1 });
-		this.editor.onSubmit = (text) => this.submitResume(text);
 		runtime.startWidgetRefresh();
 		this.refreshItems();
 		this.refreshTimer = setInterval(() => {
@@ -81,7 +71,6 @@ export class SubagentsOverlayController implements Component {
 		}
 
 		if (this.state.view.kind === "detail") this.handleDetailInput(data);
-		else if (this.state.view.kind === "editor") this.handleEditorInput(data);
 		else this.handleListInput(data);
 
 		this.requestRender();
@@ -92,9 +81,6 @@ export class SubagentsOverlayController implements Component {
 		const bodyHeight = this.bodyHeight();
 		if (this.state.view.kind === "detail") {
 			lines.push(...renderDetail(this.state.view.item, this.state.view.scroll, this.theme, width, bodyHeight));
-		} else if (this.state.view.kind === "editor") {
-			const item = this.state.items[this.state.view.itemIndex];
-			if (item) lines.push(...this.renderEditorView(item, width));
 		} else {
 			lines.push(...renderList(this.state, this.theme, width, bodyHeight, this.state.listScroll[this.state.activeTab]));
 		}
@@ -102,9 +88,7 @@ export class SubagentsOverlayController implements Component {
 		return lines.map((line) => fitLine(line, width));
 	}
 
-	invalidate(): void {
-		this.editor.invalidate();
-	}
+	invalidate(): void {}
 
 	private handleListInput(data: string): void {
 		if (matchesKey(data, Key.escape)) {
@@ -127,11 +111,6 @@ export class SubagentsOverlayController implements Component {
 				this.refreshItems();
 				this.requestRender();
 			});
-			return;
-		}
-		if (matchesKey(data, "m") && item.canResume) {
-			this.editor.setText("");
-			this.state.view = { kind: "editor", itemIndex: this.state.selectedIndex };
 		}
 	}
 
@@ -149,33 +128,6 @@ export class SubagentsOverlayController implements Component {
 		if ((matchesKey(data, Key.up) || matchesKey(data, "k")) && this.state.view.scroll > 0) {
 			this.state.view = { ...this.state.view, scroll: this.state.view.scroll - 1 };
 		}
-	}
-
-	private handleEditorInput(data: string): void {
-		if (matchesKey(data, Key.escape)) {
-			this.state.view = { kind: "list" };
-			return;
-		}
-		this.editor.disableSubmit = false;
-		this.editor.handleInput(data);
-	}
-
-	private renderEditorView(item: OverlayItem, width: number): string[] {
-		const innerWidth = Math.max(20, width - 4);
-		const editorLines = this.editor.render(innerWidth);
-		const lines = [
-			` ${this.theme.fg("accent", "▸")} Resume ${this.theme.bold(item.name)}`,
-			`   ${this.theme.fg("muted", "Write a follow-up message. Enter sends, Esc cancels.")}`,
-			"",
-		];
-
-		for (const line of editorLines) {
-			lines.push(`  ${this.theme.bg("selectedBg", line)}`);
-		}
-		if (!this.editor.getText()) {
-			lines.push(`  ${this.theme.fg("dim", "Message…")}`);
-		}
-		return lines.map((line) => fitLine(line, width));
 	}
 
 	private switchTab(direction: -1 | 1): void {
@@ -259,50 +211,7 @@ export class SubagentsOverlayController implements Component {
 		return this.state.items[this.state.selectedIndex];
 	}
 
-	private submitResume(rawText: string): void {
-		if (!rawText.trim() || this.state.view.kind !== "editor") return;
-		const item = this.state.items[this.state.view.itemIndex];
-		this.state.view = { kind: "list" };
-		if (!item?.sessionFile) {
-			this.ctx.ui.notify("No session file.", "error");
-			return;
-		}
-		void this.doResume(item, rawText);
-	}
-
-	private async doResume(item: OverlayItem, message: string): Promise<void> {
-		try {
-			const running = await resumeSubagentSession(
-				{ sessionFile: item.sessionFile!, task: message, name: item.name, agent: item.agent },
-				this.runtime,
-			);
-			if (running.completionPromise) {
-				this.runtime.wireSubagentSteerBack(this.runtime.pi, running, running.completionPromise);
-			}
-			completedSubagentResults.delete(item.id);
-			this.ctx.ui.notify(`Resumed ${item.name}.`, "info");
-			this.refreshItems();
-		} catch (err) {
-			this.ctx.ui.notify(`Failed: ${err instanceof Error ? err.message : String(err)}`, "error");
-		} finally {
-			this.requestRender();
-		}
-	}
-
 	private requestRender(): void {
 		this.tui.requestRender();
 	}
-}
-
-function createEditorTheme(theme: Theme): EditorTheme {
-	return {
-		borderColor: (text) => theme.fg("accent", text),
-		selectList: {
-			description: (text) => theme.fg("muted", text),
-			noMatch: (text) => theme.fg("warning", text),
-			scrollInfo: (text) => theme.fg("dim", text),
-			selectedPrefix: (text) => theme.fg("accent", text),
-			selectedText: (text) => theme.fg("accent", text),
-		},
-	};
 }

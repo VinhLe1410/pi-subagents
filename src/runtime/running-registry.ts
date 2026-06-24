@@ -148,10 +148,8 @@ export function getStartedSubagentDetails(
 		sessionFile: running.noSession ? undefined : running.sessionFile,
 		noSession: running.noSession,
 		status: "started" as const,
-		mode: running.mode,
 		deliveryState: running.deliveryState,
 		parentClosePolicy: running.parentClosePolicy,
-		async: running.async !== false,
 		autoExit: running.autoExit,
 	};
 }
@@ -168,10 +166,8 @@ export async function getLaunchedSubagentResult(
 	return runtime.asSubagentToolResult(result);
 }
 
-/** Normal subagent launches are background-only and awaited-only. */
-export function shouldAwaitSubagentLaunch(
-	_running: Pick<RunningSubagent, "blocking" | "async">,
-): boolean {
+/** Normal subagent launches are awaited-only. */
+export function shouldAwaitSubagentLaunch(): boolean {
 	return true;
 }
 
@@ -197,9 +193,6 @@ export function routeDetachedSubagentCompletion(
 		formatElapsed,
 		updateWidget,
 	});
-	if (routed.kind !== "completion") {
-		throw new Error("routeDetachedSubagentCompletion received a child ping result");
-	}
 	return routed.completed;
 }
 

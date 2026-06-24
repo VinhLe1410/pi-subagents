@@ -24,12 +24,7 @@ function parseFrontmatter(content: string) {
 	const body = content.replace(/^---\n[\s\S]*?\n---\n*/, "").trim();
 	const systemPromptMode = get("system-prompt");
 	return {
-		systemPromptMode:
-			systemPromptMode === "replace"
-				? "replace"
-				: systemPromptMode === "append"
-					? "append"
-					: undefined,
+		systemPromptMode: systemPromptMode === "append" ? "append" : "replace",
 		body: body || undefined,
 	};
 }
@@ -40,14 +35,14 @@ function simulateRouting(
 	paramSystemPrompt: string | undefined,
 ) {
 	const identity = agentBody ?? paramSystemPrompt ?? null;
-	const identityInSystemPrompt = !!(systemPromptMode && identity);
+	const identityInSystemPrompt = !!(identity && (systemPromptMode ?? "replace"));
 	const roleBlock =
 		identity && !identityInSystemPrompt ? `\n\n${identity}` : "";
 
 	let cliFlag: string | null = null;
 	if (identityInSystemPrompt && identity) {
 		cliFlag =
-			systemPromptMode === "replace"
+			(systemPromptMode ?? "replace") === "replace"
 				? "--system-prompt"
 				: "--append-system-prompt";
 	}
@@ -58,7 +53,6 @@ function simulateRouting(
 const AGENT_REPLACE = `---
 model: anthropic/claude-sonnet-4-20250514
 system-prompt: replace
-auto-exit: true
 ---
 
 You are a specialized agent.`;
@@ -76,13 +70,6 @@ model: anthropic/claude-sonnet-4-20250514
 
 You are a default agent.`;
 
-const AGENT_INVALID = `---
-model: anthropic/claude-sonnet-4-20250514
-system-prompt: foobar
----
-
-Body here.`;
-
 describe("system-prompt mode", () => {
 	it("parses frontmatter modes correctly", () => {
 		const replace = parseFrontmatter(AGENT_REPLACE);
@@ -92,8 +79,7 @@ describe("system-prompt mode", () => {
 		});
 
 		assert.equal(parseFrontmatter(AGENT_APPEND)?.systemPromptMode, "append");
-		assert.equal(parseFrontmatter(AGENT_DEFAULT)?.systemPromptMode, undefined);
-		assert.equal(parseFrontmatter(AGENT_INVALID)?.systemPromptMode, undefined);
+		assert.equal(parseFrontmatter(AGENT_DEFAULT)?.systemPromptMode, "replace");
 	});
 
 	it("routes identity into CLI flags only when configured", () => {
@@ -110,9 +96,9 @@ describe("system-prompt mode", () => {
 		});
 
 		assert.deepEqual(simulateRouting("You are X.", undefined, undefined), {
-			roleBlock: "\n\nYou are X.",
-			cliFlag: null,
-			identityInSystemPrompt: false,
+			roleBlock: "",
+			cliFlag: "--system-prompt",
+			identityInSystemPrompt: true,
 		});
 
 		assert.deepEqual(simulateRouting(undefined, undefined, undefined), {
@@ -155,7 +141,7 @@ describe("system-prompt mode", () => {
 				body: "You are a specialized agent.",
 			});
 			assert.equal(loadFromDir("test-append")?.systemPromptMode, "append");
-			assert.equal(loadFromDir("test-default")?.systemPromptMode, undefined);
+			assert.equal(loadFromDir("test-default")?.systemPromptMode, "replace");
 		} finally {
 			rmSync(tmpDir, { recursive: true, force: true });
 		}

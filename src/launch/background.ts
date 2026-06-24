@@ -27,7 +27,6 @@ import {
 } from "../session/session-files.ts";
 import { coordinateSubagentLaunch } from "./launch-coordinator.ts";
 import { writeTaskArtifact } from "./prompt-artifacts.ts";
-import { expandSubagentTask } from "./task-expansion.ts";
 import { getSubagentDisplayTitle } from "../agents/titles.ts";
 import { getSubagentToolLaunchArgs } from "../tools/policy.ts";
 import { clearSubagentExitSidecar } from "../session/exit-sidecar.ts";
@@ -52,19 +51,11 @@ export async function launchBackgroundSubagent(
 		"subagent-done.ts",
 	);
 	const roleBlock = getPreparedRoleBlock(prepared);
-	const modeHint = prepared.agentDefs?.autoExit
-		? "Complete your task autonomously."
-		: "Manual lifecycle: do not stop after your final text. After completing the task, you MUST call the subagent_done tool unless you intentionally need the human operator to terminate this session. If operator close is required, say exactly `MANUAL CLOSE REQUIRED:` followed by the reason and wait.";
-	const summaryInstruction = prepared.agentDefs?.autoExit
-		? "Your FINAL assistant message should summarize what you accomplished."
-		: "Your FINAL assistant message before calling subagent_done, or before asking for manual close, should summarize what you accomplished. After that final message, immediately call subagent_done.";
-	const expandedTask = await expandSubagentTask(params.task, {
-		enabled: prepared.agentDefs?.taskExpansion === "shell",
-		cwd: prepared.runtimePaths.effectiveCwd ?? ctx.cwd,
-	});
+	const modeHint = "Complete your task autonomously.";
+	const summaryInstruction = "Your FINAL assistant message should summarize what you accomplished.";
 	let fullTask = directTask
-		? expandedTask
-		: `${roleBlock}\n\n${modeHint}\n\n${expandedTask}\n\n${summaryInstruction}`;
+		? params.task
+		: `${roleBlock}\n\n${modeHint}\n\n${params.task}\n\n${summaryInstruction}`;
 	const skillInjection = getPreparedSkillInjection(prepared);
 	if (skillInjection) fullTask = `${skillInjection}\n\n${fullTask}`;
 
@@ -86,7 +77,7 @@ export async function launchBackgroundSubagent(
 	args.push(...getApprovalLaunchArgs(prepared.agentDefs, "background"));
 	args.push(...getSubagentToolLaunchArgs(prepared.effectiveTools, prepared.denySet));
 	args.push(...getPreparedSkillLaunchArgs(prepared));
-	args.push(...getFlagsLaunchArgs(prepared.agentDefs?.flags));
+	args.push(...getFlagsLaunchArgs(undefined));
 
 	const taskArg = `@${writeTaskArtifact(params.name, fullTask, ctx)}`;
 	for (const promptArg of buildPiPromptArgs(
@@ -103,26 +94,20 @@ export async function launchBackgroundSubagent(
 	const invocation = getPiInvocation(args);
 	const child = spawn(invocation.command, invocation.args, {
 		cwd: prepared.runtimePaths.effectiveCwd ?? ctx.cwd,
-		detached: true,
-		stdio: resolveSubagentParentClosePolicy(prepared.agentDefs) === "continue"
-			? ["ignore", "ignore", "ignore"]
-			: ["ignore", "pipe", "pipe"],
+		detached: false,
+		stdio: ["ignore", "pipe", "pipe"],
 		env: getSubagentChildProcessEnv(invocation, envVars),
 	});
-	child.unref();
 	const running: RunningSubagent = {
 		id,
 		name: params.name,
 		task: params.task,
 		title: getSubagentDisplayTitle(params),
 		agent: params.agent,
-		mode: "background",
 		executionState: "running",
 		deliveryState: "detached",
 		parentClosePolicy: resolveSubagentParentClosePolicy(prepared.agentDefs),
-		blocking: params.blocking ?? false,
-		async: params.async ?? !(params.blocking ?? false),
-		autoExit: prepared.agentDefs?.autoExit ?? false,
+		autoExit: true,
 		noSession,
 		childProcess: child,
 		startTime,

@@ -318,38 +318,6 @@ describe("session.ts", () => {
 				"Subagent stopped before producing a result (stopReason: length)",
 			);
 		});
-
-		it("falls back to the last meaningful tool result when assistant only calls subagent_done", () => {
-			const entries = [
-				{
-					type: "message",
-					message: {
-						role: "toolResult",
-						toolName: "bash",
-						content: [{ type: "text", text: "Actual child output." }],
-					},
-				},
-				{
-					type: "message",
-					message: {
-						role: "assistant",
-						content: [
-							{ type: "toolCall", name: "subagent_done", arguments: {} },
-						],
-					},
-				},
-				{
-					type: "message",
-					message: {
-						role: "toolResult",
-						toolName: "subagent_done",
-						content: [{ type: "text", text: "Shutting down subagent session." }],
-					},
-				},
-			] as any[];
-
-			assert.equal(findLastSubagentOutput(entries), "Actual child output.");
-		});
 	});
 
 	describe("appendBranchSummary", () => {

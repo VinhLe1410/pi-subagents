@@ -1,10 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { appendFileSync, copyFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-	CALLER_PING_TOOL_NAME,
-	SUBAGENT_DONE_TOOL_NAME,
-} from "../tools/tool-names.ts";
 
 export interface SessionEntry {
 	type: string;
@@ -135,8 +131,6 @@ export function findLastSubagentOutput(entries: SessionEntry[]): string | null {
 		if (entry.type !== "message") continue;
 		const msg = entry as MessageEntry;
 		if (msg.message.role !== "toolResult") continue;
-		if (msg.message.toolName === SUBAGENT_DONE_TOOL_NAME) continue;
-		if (msg.message.toolName === CALLER_PING_TOOL_NAME) continue;
 		const text = getTextContent(msg);
 		if (text) return text;
 	}

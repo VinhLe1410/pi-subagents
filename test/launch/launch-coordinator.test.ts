@@ -1,8 +1,5 @@
 import {
-	ASSISTANT_MSG,
-	MODEL_CHANGE,
 	SESSION_HEADER,
-	USER_MSG,
 	assert,
 	createTestDir,
 	describe,
@@ -15,7 +12,7 @@ import {
 import { coordinateSubagentLaunch } from "../../src/launch/launch-coordinator.ts";
 
 describe("launch coordinator", () => {
-	it("prepares, seeds, persists, and returns common launch facts", async () => {
+	it("prepares, seeds, persists, and returns simplified launch facts", async () => {
 		const cwd = createTestDir();
 		mkdirSync(join(cwd, ".pi", "agents"), { recursive: true });
 		writeFileSync(
@@ -23,27 +20,15 @@ describe("launch coordinator", () => {
 			[
 				"---",
 				"name: scout",
-				"session-mode: fork",
-				"mode: background",
-				"auto-exit: true",
 				"model: provider/model",
 				"thinking: high",
 				"tools: read,bash",
-				"deny-tools: bash",
-				"skills: none",
-				"extensions: none",
-				"trust-project: true",
 				"---",
 				"You scout the codebase.",
 			].join("\n"),
 		);
 		const parentSession = join(cwd, "parent.jsonl");
-		writeFileSync(
-			parentSession,
-			`${[SESSION_HEADER, MODEL_CHANGE, USER_MSG, ASSISTANT_MSG]
-				.map((entry) => JSON.stringify(entry))
-				.join("\n")}\n`,
-		);
+		writeFileSync(parentSession, `${JSON.stringify(SESSION_HEADER)}\n`);
 
 		const launch = await coordinateSubagentLaunch(
 			{
@@ -57,36 +42,112 @@ describe("launch coordinator", () => {
 				sessionManager: {
 					getSessionFile: () => parentSession,
 					getSessionId: () => "parent-session-id",
-					getLeafId: () => "asst-001",
+					getLeafId: () => null,
 				},
 			},
 			{ mode: "background" },
 		);
 
-		assert.equal(launch.sessionMode, "fork");
+		assert.equal(launch.sessionMode, "lineage-only");
 		assert.equal(launch.noSession, false);
-		assert.equal(launch.directTask, true);
-		assert.equal(launch.seedMode, "fork");
-		assert.equal(launch.boundarySystemPrompt, true);
+		assert.equal(launch.directTask, false);
+		assert.equal(launch.seedMode, "lineage-only");
+		assert.equal(launch.boundarySystemPrompt, false);
 		assert.equal(launch.launchMetadata.mode, "background");
-		assert.equal(launch.launchMetadata.sessionMode, "fork");
+		assert.equal(launch.launchMetadata.sessionMode, "lineage-only");
 		assert.equal(launch.launchMetadata.modelRef, "provider/model:high");
-		assert.equal(launch.launchMetadata.trustProject, true);
+		assert.equal(launch.launchMetadata.trustProject, false);
+		assert.equal(launch.launchMetadata.noContextFiles, true);
+		assert.equal(launch.launchMetadata.noSession, false);
 		assert.equal(launch.envVars.PI_SUBAGENT_SESSION, launch.prepared.subagentSessionFile);
 		assert.equal(launch.envVars.PI_SUBAGENT_AUTO_EXIT, "1");
-		assert.deepEqual(launch.envVars.PI_DENY_TOOLS.split(",").sort(), [
-			"bash",
-			"subagent",
-			"subagent_resume",
-		]);
+		assert.deepEqual(launch.envVars.PI_DENY_TOOLS.split(",").sort(), ["subagent"]);
 
 		const entries = getEntries(launch.prepared.subagentSessionFile) as Array<Record<string, unknown>>;
 		assert.equal(entries[0].type, "session");
-		assert.equal(entries.some((entry) => entry.customType === "subagent_boundary"), true);
-		assert.equal(entries.some((entry) => entry.type === "model_change"), true);
-		assert.equal(entries.some((entry) => entry.type === "thinking_level_change"), true);
+		assert.equal(entries.some((entry) => entry.customType === "subagent_boundary"), false);
+		assert.equal(entries.some((entry) => entry.type === "model_change"), false);
+		assert.equal(entries.some((entry) => entry.type === "thinking_level_change"), false);
 		assert.equal(entries.some((entry) => entry.customType === "pi-subagents_launch_metadata"), true);
 		assert.equal(launch.launchEntryCount, entries.length);
+	});
+
+	it("rejects deprecated agent frontmatter fields", async () => {
+		const cwd = createTestDir();
+		mkdirSync(join(cwd, ".pi", "agents"), { recursive: true });
+		writeFileSync(
+			join(cwd, ".pi", "agents", "legacy.md"),
+			[
+				"---",
+				"name: legacy",
+				"session-mode: fork",
+				"auto-exit: false",
+				"---",
+				"Legacy agent.",
+			].join("\n"),
+		);
+		const parentSession = join(cwd, "parent.jsonl");
+		writeFileSync(parentSession, `${JSON.stringify(SESSION_HEADER)}\n`);
+
+		await assert.rejects(
+			coordinateSubagentLaunch(
+				{
+					name: "legacy-agent",
+					title: "Legacy agent",
+					task: "Launch legacy",
+					agent: "legacy",
+				},
+				{
+					cwd,
+					sessionManager: {
+						getSessionFile: () => parentSession,
+						getSessionId: () => "parent-session-id",
+						getLeafId: () => null,
+					},
+				},
+				{ mode: "background" },
+			),
+			/Unsupported agent frontmatter fields.*session-mode, auto-exit/,
+		);
+	});
+
+	it("rejects invalid supported frontmatter values", async () => {
+		const cwd = createTestDir();
+		mkdirSync(join(cwd, ".pi", "agents"), { recursive: true });
+		writeFileSync(
+			join(cwd, ".pi", "agents", "invalid.md"),
+			[
+				"---",
+				"name: invalid",
+				"system-prompt: merge",
+				"timeout: soon",
+				"---",
+				"Invalid agent.",
+			].join("\n"),
+		);
+		const parentSession = join(cwd, "parent.jsonl");
+		writeFileSync(parentSession, `${JSON.stringify(SESSION_HEADER)}\n`);
+
+		await assert.rejects(
+			coordinateSubagentLaunch(
+				{
+					name: "invalid-agent",
+					title: "Invalid agent",
+					task: "Launch invalid",
+					agent: "invalid",
+				},
+				{
+					cwd,
+					sessionManager: {
+						getSessionFile: () => parentSession,
+						getSessionId: () => "parent-session-id",
+						getLeafId: () => null,
+					},
+				},
+				{ mode: "background" },
+			),
+			/Invalid system-prompt.*expected "append" or "replace"/,
+		);
 	});
 
 	it("persists identity system prompt without changing the child session path", async () => {
@@ -111,7 +172,6 @@ describe("launch coordinator", () => {
 				title: "Diff reviewer",
 				task: "Review the diff",
 				agent: "reviewer",
-				systemPrompt: "Focus on material findings.",
 			},
 			{
 				cwd,
@@ -125,8 +185,7 @@ describe("launch coordinator", () => {
 		);
 
 		assert.equal(launch.systemPrompt?.flag, "--append-system-prompt");
-		assert.match(launch.systemPrompt?.text ?? "", /You are the reviewer identity/);
-		assert.match(launch.systemPrompt?.text ?? "", /Focus on material findings/);
+		assert.equal(launch.systemPrompt?.text, "You are the reviewer identity.");
 		assert.equal(launch.launchMetadata.systemPrompt, launch.systemPrompt?.text);
 		assert.equal(launch.envVars.PI_SUBAGENT_SESSION, launch.prepared.subagentSessionFile);
 

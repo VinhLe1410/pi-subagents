@@ -6,19 +6,17 @@ import type { AgentDefaults } from "../agents/definitions.ts";
 import { loadAgentDefaults as loadAgentDefaultsFromDefinitions } from "../agents/definitions.ts";
 
 import { CHILD_CONTEXT_BOUNDARY_SYSTEM_PROMPT } from "./context-boundary.ts";
-import { parseCommandWords } from "./child-command.ts";
-import { parseEnvString } from "./env.ts";
 import {
 	resolveSubagentNoContextFiles,
 	resolveSubagentNoSession,
 	resolveSubagentParentClosePolicy,
 } from "./policy.ts";
-import type { ResumeMode } from "./resume.ts";
 import { resolveSubagentCwd, type ResolvedSubagentRuntimePaths } from "./runtime-paths.ts";
 import type { RunningSubagent, SubagentParamsInput } from "../types.ts";
 import {
 	buildIdentityBlock,
 	type PersistedSubagentLaunchMetadata,
+	type ResumeMode,
 	type SubagentSessionMode,
 } from "../session/session-files.ts";
 import { getSubagentToolLaunchArgs } from "../tools/policy.ts";
@@ -90,21 +88,13 @@ export async function prepareSubagentLaunch(
 	ctx: SubagentLaunchContext,
 ): Promise<PreparedSubagentLaunch> {
 	const agentDefs = params.agent
-		? loadAgentDefaults(params.agent, params.cwd, ctx.cwd)
+		? loadAgentDefaults(params.agent, undefined, ctx.cwd)
 		: null;
-	// Preserve the original agent-level auto-exit before any headless-mode override
-	// so that persisted metadata always reflects the agent file, not the runtime override.
-	const agentAutoExit = agentDefs?.autoExit;
-	// Apply headless-mode auto-exit override so downstream consumers (mode hint,
-	// env vars, running state) all see the effective runtime value.
-	if (ctx.autoExit !== undefined && agentDefs) {
-		agentDefs.autoExit = ctx.autoExit;
-	}
+	const agentAutoExit = true;
 	const sessionFile = ctx.sessionManager.getSessionFile() ?? null;
-	// When there is no parent session file (pi --no-session), standalone
-	// no-session children can still launch with a tmpdir fallback.
-	// Lineage-tracked children (lineage-only / fork) will fail later in
-	// seedSubagentSessionFile with a clear error.
+	// When there is no parent session file (for example pi --no-session),
+	// lineage-tracked children fail later in seedSubagentSessionFile with a
+	// clear error.
 	const parentSessionDir =
 		sessionFile !== null ? dirname(sessionFile) : join(tmpdir(), "pi-subagents", "parentless");
 	const childLaunchPlan = await buildChildLaunchPlan({
@@ -132,7 +122,7 @@ export async function prepareSubagentLaunch(
 		extensions: effectiveExtensions,
 		skillLaunchPlan,
 	} = childLaunchPlan.capability;
-	const identity = buildIdentityBlock(agentDefs, params.systemPrompt);
+	const identity = buildIdentityBlock(agentDefs);
 	const identityInSystemPrompt = !!(agentDefs?.systemPromptMode && identity);
 
 	return {
@@ -192,17 +182,15 @@ export function getExtensionLaunchArgs(
 	return args;
 }
 
-export function getFlagsLaunchArgs(flags: string | undefined): string[] {
-	if (!flags?.trim()) return [];
-	return parseCommandWords(flags);
+export function getFlagsLaunchArgs(_flags: string | undefined): string[] {
+	return [];
 }
 
 export function getApprovalLaunchArgs(
-	agentDefs: Pick<AgentDefaults, "trustProject"> | null | undefined,
-	mode: ResumeMode,
+	_agentDefs: AgentDefaults | null | undefined,
+	_mode: ResumeMode,
 ): string[] {
-	if (mode === "background") return ["--no-approve"];
-	return agentDefs?.trustProject === true ? ["--approve"] : ["--no-approve"];
+	return ["--no-approve"];
 }
 
 export function getPersistedApprovalLaunchArgs(
@@ -273,7 +261,6 @@ export async function getPersistedSessionParityArgs(
 		)).launchArgs,
 	);
 	args.push(...getPersistedApprovalLaunchArgs(metadata, modeOverride ?? metadata.mode));
-	args.push(...getFlagsLaunchArgs(metadata.flags));
 	return args;
 }
 
@@ -300,15 +287,6 @@ export function buildPersistedSubagentLaunchMetadata(
 	boundarySystemPrompt: boolean,
 	systemPrompt?: string,
 ): PersistedSubagentLaunchMetadata {
-	const allowModelOverride = prepared.agentDefs?.allowModelOverride !== false;
-	const modelSource = params.model || params.thinking
-		? "launch-override"
-		: prepared.agentDefs?.model
-			? "agent"
-			: prepared.effectiveModel
-				? "parent"
-				: undefined;
-
 	return {
 		version: 1,
 		timestamp: new Date().toISOString(),
@@ -322,7 +300,6 @@ export function buildPersistedSubagentLaunchMetadata(
 			? { autoExit: prepared.agentAutoExit }
 			: {}),
 		parentClosePolicy: resolveSubagentParentClosePolicy(prepared.agentDefs),
-		async: params.async !== false,
 		...(prepared.effectiveModel ? { model: prepared.effectiveModel } : {}),
 		...(prepared.effectiveThinking
 			? { thinking: prepared.effectiveThinking }
@@ -332,11 +309,6 @@ export function buildPersistedSubagentLaunchMetadata(
 			: {}),
 		...(prepared.agentDefs?.model ? { definitionModel: prepared.agentDefs.model } : {}),
 		...(prepared.agentDefs?.thinking ? { definitionThinking: prepared.agentDefs.thinking } : {}),
-		...(prepared.agentDefs?.allowedModels ? { allowedModels: prepared.agentDefs.allowedModels } : {}),
-		allowModelOverride,
-		...(modelSource ? { modelSource } : {}),
-		...(params.model ? { requestedModelOverride: params.model } : {}),
-		...(params.thinking ? { requestedThinkingOverride: params.thinking } : {}),
 		...(prepared.effectiveTools ? { tools: prepared.effectiveTools } : {}),
 		...(prepared.effectiveSkills ? { skills: prepared.effectiveSkills } : {}),
 		...(prepared.effectiveInjectSkills
@@ -346,9 +318,9 @@ export function buildPersistedSubagentLaunchMetadata(
 		...(prepared.effectiveExtensions !== undefined
 			? { extensions: prepared.effectiveExtensions }
 			: {}),
-		noContextFiles: resolveSubagentNoContextFiles(prepared.agentDefs),
-		noSession: resolveSubagentNoSession(prepared.agentDefs),
-		trustProject: prepared.agentDefs?.trustProject === true,
+		noContextFiles: true,
+		noSession: false,
+		trustProject: false,
 		agentConfigDir: prepared.runtimePaths.effectiveAgentConfigDir,
 		cwd: prepared.runtimePaths.targetCwdForSession,
 		...(prepared.agentDefs?.systemPromptMode
@@ -356,12 +328,6 @@ export function buildPersistedSubagentLaunchMetadata(
 			: {}),
 		...(systemPrompt ? { systemPrompt } : {}),
 		boundarySystemPrompt,
-		...(prepared.agentDefs?.taskExpansion
-			? { taskExpansion: prepared.agentDefs.taskExpansion }
-			: {}),
-
-		...(prepared.agentDefs?.flags ? { flags: prepared.agentDefs.flags } : {}),
-		...(prepared.agentDefs?.env ? { env: prepared.agentDefs.env } : {}),
 	};
 }
 
@@ -374,11 +340,6 @@ export function getBaseSubagentEnvVars(
 	) => SubagentSessionMode,
 ): Record<string, string> {
 	const envVars: Record<string, string> = { PI_PACKAGE_DIR: "" };
-	// Merge user-configured env vars from frontmatter first,
-	// so internal PI vars below can override them if needed.
-	if (prepared.agentDefs?.env) {
-		Object.assign(envVars, parseEnvString(prepared.agentDefs.env));
-	}
 	if (prepared.runtimePaths.localAgentConfigDir) {
 		envVars.PI_CODING_AGENT_DIR = prepared.runtimePaths.localAgentConfigDir;
 	} else if (process.env.PI_CODING_AGENT_DIR) {

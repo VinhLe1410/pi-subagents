@@ -133,7 +133,6 @@ export function watchBackgroundSubagent(
 				exitCode,
 				elapsed,
 				outputTokens: exitSignal?.outputTokens,
-				ping: exitSignal?.ping,
 				errorMessage,
 			});
 		};

@@ -39,7 +39,7 @@ export interface CoordinatedSubagentLaunch {
 export async function coordinateSubagentLaunch(
 	params: SubagentParamsInput,
 	ctx: SubagentLaunchContext,
-	options: { mode: ResumeMode; systemPrompt?: string },
+	options: { mode: ResumeMode },
 ): Promise<CoordinatedSubagentLaunch> {
 	const prepared = await prepareSubagentLaunch(params, ctx);
 	const sessionMode = resolveEffectiveSessionMode(params, prepared.agentDefs);
@@ -60,7 +60,7 @@ export async function coordinateSubagentLaunch(
 		options.mode,
 		sessionMode,
 		boundarySystemPrompt,
-		systemPrompt?.text ?? options.systemPrompt,
+		systemPrompt?.text,
 	);
 	const storage = new ChildSessionStorage(prepared.subagentSessionFile);
 	if (existsSync(prepared.subagentSessionFile)) {
@@ -68,7 +68,7 @@ export async function coordinateSubagentLaunch(
 		await storage.writeLaunchMetadataWhenReady(launchMetadata, 0);
 	}
 	const envVars = getBaseSubagentEnvVars(prepared, params, resolveEffectiveSessionMode);
-	if (prepared.agentDefs?.autoExit) envVars.PI_SUBAGENT_AUTO_EXIT = "1";
+	envVars.PI_SUBAGENT_AUTO_EXIT = "1";
 	envVars.PI_SUBAGENT_SESSION = prepared.subagentSessionFile;
 	const launchEntryCount = existsSync(prepared.subagentSessionFile)
 		? getEntryCount(prepared.subagentSessionFile)

@@ -42,8 +42,7 @@ export function seedPreparedSubagentSession(
 		if (!prepared.sessionFile) {
 			throw new Error(
 				`Cannot launch ${seedMode} subagent: no parent session file. ` +
-					`Use session-mode: standalone in the agent frontmatter, ` +
-					`or start pi with a persistent session (--session or --session-dir).`,
+					`Start pi with a persistent session (--session or --session-dir).`,
 			);
 		}
 		storage.seed(
@@ -58,7 +57,7 @@ export function seedPreparedSubagentSession(
 		if (boundarySystemPrompt) {
 			const boundaryOptions = {
 				name: params.name,
-				spawningAllowed: prepared.agentDefs?.spawning === true,
+				spawningAllowed: false,
 			};
 			storage.writeBoundary(
 				boundaryOptions,

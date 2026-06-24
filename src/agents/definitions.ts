@@ -3,40 +3,13 @@ import { homedir } from "node:os";
 import { basename, join } from "node:path";
 
 export interface AgentDefaults {
-	enabled?: boolean;
 	model?: string;
-	allowedModels?: string;
-	allowModelOverride?: boolean;
 	tools?: string;
-	skills?: string;
-	injectSkills?: string;
-	extensions?: string;
 	thinking?: string;
-	denyTools?: string;
-	spawning?: boolean;
-	autoExit?: boolean;
 	systemPromptMode?: "append" | "replace";
-	cwd?: string;
-	cwdBase?: string;
 	path?: string;
 	body?: string;
-	/** @deprecated compatibility field; runtime ignores and launches in background. */
-	mode?: "interactive" | "background";
-	sessionMode?: "standalone" | "lineage-only" | "fork";
-	fork?: boolean;
-	/** @deprecated compatibility field; runtime ignores and waits for completion. */
-	async?: boolean;
-	/** @deprecated compatibility field; runtime ignores and waits for completion. */
-	blocking?: boolean;
-	noContextFiles?: boolean;
-	noSession?: boolean;
-	trustProject?: boolean;
 	timeout?: number;
-	taskExpansion?: "shell";
-
-	flags?: string;
-	env?: string;
-	parentClosePolicy?: "terminate" | "continue";
 }
 
 export interface ResolvedAgentDefinition extends AgentDefaults {
@@ -50,112 +23,77 @@ export function getAgentConfigDir(): string {
 	return process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
 }
 
+const SUPPORTED_FRONTMATTER_KEYS = new Set([
+	"name",
+	"description",
+	"model",
+	"thinking",
+	"tools",
+	"system-prompt",
+	"timeout",
+]);
+
+function getFrontmatterValue(frontmatter: string, key: string): string | undefined {
+	const match = frontmatter.match(new RegExp(`^${key}:\\s*(.+)$`, "m"));
+	return match ? match[1].trim() : undefined;
+}
+
+function validateAgentFrontmatter(frontmatter: string, path: string): void {
+	const unsupported = frontmatter
+		.split(/\r?\n/)
+		.map((line) => line.match(/^([A-Za-z0-9_-]+):/))
+		.filter((match): match is RegExpMatchArray => !!match)
+		.map((match) => match[1])
+		.filter((key) => !SUPPORTED_FRONTMATTER_KEYS.has(key));
+	if (unsupported.length > 0) {
+		throw new Error(
+			`Unsupported agent frontmatter field${unsupported.length === 1 ? "" : "s"} in ${path}: ${unsupported.join(", ")}. ` +
+				`Supported fields: ${[...SUPPORTED_FRONTMATTER_KEYS].join(", ")}.`,
+		);
+	}
+}
+
+function parseTimeout(raw: string | undefined, path: string): number | undefined {
+	if (raw == null) return undefined;
+	if (!/^\d+$/.test(raw)) {
+		throw new Error(`Invalid timeout in ${path}: expected a positive integer number of seconds.`);
+	}
+	const timeout = Number(raw);
+	if (!Number.isSafeInteger(timeout) || timeout <= 0) {
+		throw new Error(`Invalid timeout in ${path}: expected a positive integer number of seconds.`);
+	}
+	return timeout;
+}
+
+function parseSystemPromptMode(raw: string | undefined, path: string): "append" | "replace" {
+	if (raw == null) return "replace";
+	if (raw === "append" || raw === "replace") return raw;
+	throw new Error(`Invalid system-prompt in ${path}: expected "append" or "replace".`);
+}
+
 function parseAgentDefinition(
 	path: string,
 	source: "project" | "global",
-	cwdBase: string,
 ): ResolvedAgentDefinition | null {
 	const content = readFileSync(path, "utf8");
 	const match = content.match(/^---\n([\s\S]*?)\n---/);
 	if (!match) return null;
 	const frontmatter = match[1];
-	const get = (key: string) => {
-		const m = frontmatter.match(new RegExp(`^${key}:\\s*(.+)$`, "m"));
-		return m ? m[1].trim() : undefined;
-	};
-	const getBlock = (key: string) => {
-		const inline = get(key);
-		if (inline !== "|") return inline;
-		const lines = frontmatter.split(/\r?\n/);
-		const start = lines.findIndex((line) => line.match(new RegExp(`^${key}:\\s*\\|\\s*$`)));
-		if (start === -1) return inline;
-		const block: string[] = [];
-		for (let i = start + 1; i < lines.length; i++) {
-			const line = lines[i];
-			if (line.trim() && !line.match(/^[ \t]/)) break;
-			block.push(line.replace(/^[ \t]{1,2}/, ""));
-		}
-		return block.join("\n").trim();
-	};
-	const enabledRaw = get("enabled");
-	if (enabledRaw === "false") return null;
-	const spawningRaw = get("spawning");
-	const autoExitRaw = get("auto-exit");
-	const allowModelOverrideRaw = get("allow-model-override");
-	const modeRaw = get("mode");
-	const sessionModeRaw = get("session-mode");
-	const forkRaw = get("fork");
-	const asyncRaw = get("async");
-	const blockingRaw = get("blocking");
-	const noContextFilesRaw = get("no-context-files");
-	const noSessionRaw = get("no-session");
-	const trustProjectRaw = get("trust-project");
-	const timeoutRaw = get("timeout");
-	const taskExpansionRaw = get("task-expansion");
-
+	validateAgentFrontmatter(frontmatter, path);
+	const get = (key: string) => getFrontmatterValue(frontmatter, key);
 	const systemPromptRaw = get("system-prompt");
-	const extensionsRaw = get("extensions");
-	const injectSkillsRaw = get("inject-skills");
-	const flagsRaw = get("flags");
-	const parentClosePolicyRaw = get("parent-close-policy");
 	const body = content.replace(/^---\n[\s\S]*?\n---\n*/, "").trim();
 	return {
 		name: get("name") ?? basename(path, ".md"),
 		description: get("description"),
 		source,
 		path,
-		enabled: enabledRaw != null ? enabledRaw === "true" : undefined,
 		model: get("model"),
-		allowedModels: get("allowed-models"),
-		allowModelOverride:
-			allowModelOverrideRaw != null
-				? allowModelOverrideRaw === "true"
-				: undefined,
 		tools: get("tools"),
-		skills: get("skills"),
-		injectSkills: injectSkillsRaw,
-		extensions: extensionsRaw,
 		thinking: get("thinking"),
-		denyTools: get("deny-tools"),
-		spawning: spawningRaw != null ? spawningRaw === "true" : false,
-		autoExit: autoExitRaw != null ? autoExitRaw === "true" : undefined,
-		systemPromptMode:
-			systemPromptRaw === "append" || systemPromptRaw === "replace"
-				? systemPromptRaw
-				: undefined,
-		cwd: get("cwd"),
-		cwdBase,
+		systemPromptMode: parseSystemPromptMode(systemPromptRaw, path),
 		body: body || undefined,
-		sessionMode:
-			sessionModeRaw === "standalone" ||
-			sessionModeRaw === "lineage-only" ||
-			sessionModeRaw === "fork"
-				? sessionModeRaw
-				: forkRaw === "true"
-					? "fork"
-					: undefined,
-		fork: forkRaw != null ? forkRaw === "true" : undefined,
-		async: asyncRaw != null ? asyncRaw === "true" : undefined,
-		blocking: blockingRaw != null ? blockingRaw === "true" : undefined,
-		noContextFiles:
-			noContextFilesRaw != null ? noContextFilesRaw === "true" : undefined,
-		noSession: noSessionRaw != null ? noSessionRaw === "true" : undefined,
-		trustProject:
-			trustProjectRaw != null ? trustProjectRaw === "true" : undefined,
-		mode:
-			modeRaw === "background" || modeRaw === "interactive"
-				? modeRaw
-				: undefined,
-		timeout: timeoutRaw != null ? parseInt(timeoutRaw, 10) : undefined,
-		taskExpansion: taskExpansionRaw === "shell" ? "shell" : undefined,
-
-		flags: flagsRaw,
-		env: getBlock("env"),
-		parentClosePolicy:
-			parentClosePolicyRaw === "terminate" ||
-			parentClosePolicyRaw === "continue"
-				? parentClosePolicyRaw
-				: undefined,
+		timeout: parseTimeout(get("timeout"), path),
 	};
 }
 
@@ -170,20 +108,18 @@ export function getEffectiveAgentDefinitions(
 		{
 			path: join(configDir, "agents"),
 			source: "global" as const,
-			cwdBase: configDir,
 		},
 		{
 			path: join(baseCwd, ".pi", "agents"),
 			source: "project" as const,
-			cwdBase: baseCwd,
 		},
 	];
-	for (const { path: dir, source, cwdBase } of dirs) {
+	for (const { path: dir, source } of dirs) {
 		if (!existsSync(dir)) continue;
 		for (const file of readdirSync(dir)
 			.filter((entry) => entry.endsWith(".md"))
 			.sort((a, b) => a.localeCompare(b))) {
-			const definition = parseAgentDefinition(join(dir, file), source, cwdBase);
+			const definition = parseAgentDefinition(join(dir, file), source);
 			if (!definition) continue;
 			agents.set(definition.name, definition);
 		}

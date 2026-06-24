@@ -1,9 +1,5 @@
 import type { AgentDefaults } from "../agents/definitions.ts";
-import {
-	CALLER_PING_TOOL_NAME,
-	SPAWNING_TOOL_NAMES,
-	SUBAGENT_DONE_TOOL_NAME,
-} from "./tool-names.ts";
+import { SUBAGENT_TOOL_NAME } from "./tool-names.ts";
 
 const BUILTIN_TOOL_NAMES = new Set([
 	"read",
@@ -15,42 +11,12 @@ const BUILTIN_TOOL_NAMES = new Set([
 	"ls",
 ]);
 
-/**
- * Names pi-subagents can validate at the parent boundary. Extension/custom tool
- * names cannot be validated here because the parent never loads the child's
- * extensions, so it cannot know which names they will register.
- */
 const KNOWN_TOOL_NAMES = new Set<string>([
 	...BUILTIN_TOOL_NAMES,
-	CALLER_PING_TOOL_NAME,
-	SUBAGENT_DONE_TOOL_NAME,
 ]);
 
-/**
- * Resolve the effective set of denied tool names from agent defaults.
- * `spawning` defaults to false; only `spawning: true` allows spawning tools.
- * `deny-tools` adds individual tool names on top.
- */
-export function resolveDenyTools(agentDefs: AgentDefaults | null): Set<string> {
-	const denied = new Set<string>();
-	if (!agentDefs) return denied;
-
-	// spawning defaults to false → deny all spawning tools unless explicitly enabled
-	if (agentDefs.spawning !== true) {
-		for (const t of SPAWNING_TOOL_NAMES) denied.add(t);
-	}
-
-	// deny-tools: explicit list
-	if (agentDefs.denyTools) {
-		for (const t of agentDefs.denyTools
-			.split(",")
-			.map((s) => s.trim())
-			.filter(Boolean)) {
-			denied.add(t);
-		}
-	}
-
-	return denied;
+export function resolveDenyTools(_agentDefs: AgentDefaults | null): Set<string> {
+	return new Set([SUBAGENT_TOOL_NAME]);
 }
 
 function parseToolNames(tools: string): string[] {
@@ -116,18 +82,6 @@ export interface SubagentToolsWarning {
 	message: string;
 }
 
-/**
- * Detect likely built-in typos in `tools:` at the parent boundary. A name that
- * is not known and sits within Damerau-Levenshtein distance 1 of a built-in
- * (single-char insertion/deletion/substitution or a transposition) is flagged.
- *
- * This is a NON-BLOCKING hint only. Pi core silently drops unknown tool names,
- * and the parent never loads the child's extensions, so it cannot distinguish a
- * real typo from a legitimate custom tool that happens to be one edit from a
- * built-in (e.g. `hash` vs `bash`, `exit` vs `edit`). Blocking on fuzzy match
- * would reject valid custom tools, so callers must surface this as a warning,
- * never prevent the launch.
- */
 export function getSubagentToolsWarning(tools?: string): SubagentToolsWarning | null {
 	if (!tools) return null;
 	if (tools.trim().toLowerCase() === "all" || tools.trim().toLowerCase() === "none") {
@@ -142,8 +96,7 @@ export function getSubagentToolsWarning(tools?: string): SubagentToolsWarning | 
 				suggestion,
 				message:
 					`Warning: tool ${JSON.stringify(name)} in tools: may be a typo of built-in "${suggestion}". ` +
-					`Pi silently drops unknown tool names, so if this is a typo the child runs without it. ` +
-					`If ${JSON.stringify(name)} is an intentional custom/extension tool, ignore this warning and make sure the extension that registers it is loaded.`,
+					"Pi silently drops unknown tool names, so if this is a typo the child runs without it.",
 			};
 		}
 	}
@@ -160,25 +113,12 @@ function normalizeToolMode(
 	return "list";
 }
 
-function getChildProtocolToolNames(deniedTools: Set<string>): string[] {
-	const protocolTools = [];
-	if (!deniedTools.has(CALLER_PING_TOOL_NAME)) {
-		protocolTools.push(CALLER_PING_TOOL_NAME);
-	}
-	if (!deniedTools.has(SUBAGENT_DONE_TOOL_NAME)) {
-		protocolTools.push(SUBAGENT_DONE_TOOL_NAME);
-	}
-	return protocolTools;
-}
-
 export function getSubagentToolAllowlist(
 	tools?: string,
-	deniedTools = new Set<string>(),
+	_deniedTools = new Set<string>(),
 ): string[] {
 	if (normalizeToolMode(tools) !== "list" || !tools) return [];
-	const allowlist = parseToolNames(tools);
-	allowlist.push(...getChildProtocolToolNames(deniedTools));
-	return [...new Set(allowlist)];
+	return [...new Set(parseToolNames(tools))];
 }
 
 export function addToolModeDeniedNames(

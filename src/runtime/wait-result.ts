@@ -1,66 +1,18 @@
 import { randomUUID } from "node:crypto";
 import type {
 	CompletedSubagentResult,
-	DeliveryState,
 	RunningSubagent,
 	SubagentResult,
 	WaitParams,
 } from "../types.ts";
-import { formatElapsed } from "./wiring.ts";
 import type { WaitRuntime } from "./wait.ts";
 
-function getSubagentWaitPingResult(
-	running: RunningSubagent,
-	result: SubagentResult,
-	deliveryState: DeliveryState,
-) {
-	return {
-		content: [
-			{
-				type: "text",
-				text:
-					`Sub-agent "${running.name}" requested help and exited. ` +
-					`Resume it with subagent_resume using sessionFile ${result.sessionFile ?? "(missing)"}.`,
-			},
-		],
-		details: {
-			id: running.id,
-			name: running.name,
-			agent: running.agent,
-			status: "pinged" as const,
-			deliveryState,
-			async: running.async !== false,
-			elapsed: result.elapsed,
-			outputTokens: result.outputTokens,
-			sessionFile: result.sessionFile,
-			message: result.ping?.message,
-		},
-	};
+function getResultLabel(result: Pick<CompletedSubagentResult, "name" | "agent">): string {
+	return result.agent ? `${result.name} (${result.agent})` : result.name;
 }
 
 function getSubagentWaitSuccessResult(cached: CompletedSubagentResult) {
-	const sessionRef = cached.sessionFile
-		? `\n\nSession: ${cached.sessionFile}\nResume: pi --session ${cached.sessionFile}`
-		: "";
-	let text: string;
-	if (cached.errorMessage) {
-		text =
-			`Sub-agent "${cached.name}" failed after ${formatElapsed(cached.elapsed)} ` +
-			`(provider/agent error — auto-retry exhausted).\n\n` +
-			`Error: ${cached.errorMessage}\n\n` +
-			`The subagent did not produce a result. You can retry by spawning a new ` +
-			`subagent or resume the session with subagent_resume.${sessionRef}`;
-	} else {
-		const verb =
-			cached.status === "completed"
-				? "completed"
-				: cached.status === "cancelled"
-					? "was cancelled"
-					: "failed";
-		text = cached.status === "completed"
-				? `Sub-agent "${cached.name}" completed (${formatElapsed(cached.elapsed)}).\n\n${cached.summary}${sessionRef}`
-				: `Sub-agent "${cached.name}" ${verb} (exit ${cached.exitCode}).\n\n${cached.summary}${sessionRef}`;
-	}
+	const text = `${getResultLabel(cached)}:\n${cached.summary}`;
 	return {
 		content: [{ type: "text", text }],
 		details: {
@@ -68,10 +20,8 @@ function getSubagentWaitSuccessResult(cached: CompletedSubagentResult) {
 			name: cached.name,
 			agent: cached.agent,
 			status: cached.status,
-			mode: cached.mode,
 			parentClosePolicy: cached.parentClosePolicy,
 			deliveryState: "awaited" as const,
-			async: cached.async,
 			autoExit: cached.autoExit,
 			exitCode: cached.exitCode,
 			elapsed: cached.elapsed,
@@ -192,9 +142,9 @@ export async function waitForSubagentResult(
 				runtime.runningSubagents.delete(running.id);
 				runtime.updateWidget();
 				return getSubagentWaitErrorResult(
-					`Waiting for sub-agent "${running.name}" was interrupted.`,
+					`${running.agent ? `${running.name} (${running.agent})` : running.name}:\nCancelled by parent.`,
 					"interrupted",
-					{ id: running.id },
+					{ id: running.id, status: "cancelled" },
 				);
 			}
 			races.push(
@@ -208,9 +158,6 @@ export async function waitForSubagentResult(
 
 		const outcome = await Promise.race(races);
 		if (outcome.kind === "completed") {
-			if (outcome.result.ping) {
-				return getSubagentWaitPingResult(running, outcome.result, "awaited");
-			}
 			const completed =
 				runtime.completedSubagentResults.get(running.id) ??
 				runtime.cacheCompletedSubagentResult(running, outcome.result);
@@ -236,35 +183,18 @@ export async function waitForSubagentResult(
 			runtime.runningSubagents.delete(running.id);
 			runtime.updateWidget();
 			return getSubagentWaitErrorResult(
-				`Waiting for sub-agent "${running.name}" was interrupted.`,
+				`${running.agent ? `${running.name} (${running.agent})` : running.name}:\nCancelled by parent.`,
 				"interrupted",
-				{ id: running.id },
+				{ id: running.id, status: "cancelled" },
 			);
 		}
-		if (
-			params.onTimeout === "return_pending" ||
-			params.onTimeout === "detach" ||
-			params.onTimeout === "return"
-		) {
-			return {
-				content: [
-					{
-						type: "text",
-						text: `Sub-agent "${running.name}" is still running.`,
-					},
-				],
-				details: {
-					id: running.id,
-					status: "pending" as const,
-					deliveryState: "detached" as const,
-					timeout: params.timeout,
-				},
-			};
-		}
+		runtime.stopRunningSubagent(running);
+		runtime.runningSubagents.delete(running.id);
+		runtime.updateWidget();
 		return getSubagentWaitErrorResult(
-			`Timed out waiting for sub-agent "${running.name}".`,
+			`${running.agent ? `${running.name} (${running.agent})` : running.name}:\nTimed out after ${params.timeout} seconds.`,
 			"timeout",
-			{ id: running.id, timeout: params.timeout },
+			{ id: running.id, timeout: params.timeout, status: "failed" },
 		);
 	} finally {
 		if (timeoutHandle) clearTimeout(timeoutHandle);

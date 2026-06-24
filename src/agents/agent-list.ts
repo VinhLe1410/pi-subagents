@@ -1,110 +1,40 @@
 import type { ResolvedAgentDefinition } from "./definitions.ts";
 import { getEffectiveAgentDefinitions } from "./definitions.ts";
-import { buildModelRef, parseAllowedModels, renderAllowedModelChoices } from "./model-refs.ts";
-
-type SubagentSessionMode = "standalone" | "lineage-only" | "fork";
 
 export interface AgentListEntry {
 	name: string;
 	source: "project" | "global";
-	mode?: "interactive" | "background";
-	sessionMode: SubagentSessionMode;
-	async?: boolean;
-	autoExit?: boolean;
 	description?: string;
-	model?: string;
-	thinking?: string;
-	allowedModels?: string;
-	allowModelOverride?: boolean;
 }
 
 export type ResolveSubagentSessionMode = (
 	agent: ResolvedAgentDefinition,
-) => SubagentSessionMode;
+) => "standalone" | "lineage-only" | "fork";
 
 export function getAgentListEntries(
 	baseCwd: string,
-	resolveSessionMode: ResolveSubagentSessionMode,
+	_resolveSessionMode: ResolveSubagentSessionMode,
 ): AgentListEntry[] {
 	return getEffectiveAgentDefinitions(baseCwd)
 		.filter((agent) => agent.description?.trim())
 		.map((agent) => ({
 			name: agent.name,
 			source: agent.source,
-			mode: "background" as const,
-			sessionMode: resolveSessionMode(agent),
-			async: false,
-			autoExit: agent.autoExit,
 			description: agent.description,
-			model: agent.model,
-			thinking: agent.thinking,
-			allowedModels: agent.allowedModels,
-			allowModelOverride: agent.allowModelOverride,
 		}));
-}
-
-function getToolReturn(_entry: AgentListEntry): "wait_here" {
-	return "wait_here";
-}
-
-function getRunsAs(_entry: AgentListEntry): "hidden_process" {
-	return "hidden_process";
-}
-
-function getContext(
-	entry: AgentListEntry,
-): "fresh_chat_needs_full_brief" | "copy_of_this_chat" {
-	return entry.sessionMode === "fork" ? "copy_of_this_chat" : "fresh_chat_needs_full_brief";
-}
-
-function getCompletion(
-	entry: AgentListEntry,
-): "exits_automatically" | "human_or_agent_must_finish" {
-	return entry.autoExit === false ? "human_or_agent_must_finish" : "exits_automatically";
-}
-
-function renderDefaultModelLine(entry: AgentListEntry): string | undefined {
-	if (parseAllowedModels(entry.allowedModels).length === 0) return undefined;
-	const ref = buildModelRef(entry.model, entry.thinking);
-	return ref ? `  default_model: ${ref}` : undefined;
-}
-
-function renderModelsLine(entry: AgentListEntry): string | undefined {
-	if (entry.allowModelOverride === false) return undefined;
-	const choices = renderAllowedModelChoices(entry.allowedModels);
-	return choices ? `  models: ${choices}` : undefined;
 }
 
 export function renderAgentListReminder(
 	entries: AgentListEntry[],
 ): string {
-	const hasModelChoices = entries.some((entry) => entry.allowModelOverride !== false && parseAllowedModels(entry.allowedModels).length > 0);
-	const agentLines = entries.map((entry) => {
-		return [
-			`- \`${entry.name}\`: ${entry.description}`,
-			`  tool_return: ${getToolReturn(entry)}`,
-			`  runs_as: ${getRunsAs(entry)}`,
-			`  context: ${getContext(entry)}`,
-			`  completion: ${getCompletion(entry)}`,
-			renderDefaultModelLine(entry),
-			renderModelsLine(entry),
-		].filter(Boolean).join("\n");
-	});
+	const agentLines = entries.map((entry) => `- \`${entry.name}\`: ${entry.description}`);
 	const body = [
-		"You can launch separate helper agents with the subagent tool. Use this roster to choose exact agent names and to understand how each launched agent behaves.",
+		"You can launch separate helper agents with the subagent tool. Use this roster to choose exact agent names.",
 		"<subagent-roster>",
-		agentLines.join("\n\n"),
+		agentLines.join("\n"),
 		"</subagent-roster>",
 		"<subagent-rules>",
-		"- Agent names are exact values for subagent.agent or children[].agent.",
-		"- tool_return=wait_here means the subagent tool call waits until the helper finishes.",
-		"- runs_as=hidden_process means no visible terminal is opened.",
-		"- context=fresh_chat_needs_full_brief means write a self-contained task with objective, files, constraints, and expected output.",
-		"- context=copy_of_this_chat means the helper starts from this conversation; give scope, boundary, and expected output without repeating all background.",
-		"- completion=exits_automatically means the helper should finish and close itself. completion=human_or_agent_must_finish means the session stays open until the human or helper explicitly completes it.",
-		...(hasModelChoices
-			? ["- `default_model:` is what runs when model/thinking are omitted. `models:` lists this agent's selectable model refs. To pick one, copy it exactly; split `provider/model:thinking` into model=`provider/model`, thinking=`thinking`. Never use a model not listed for that agent."]
-			: []),
+		"- Subagents do not have previous conversation context by default; always give the task proper context and completion criteria.",
 		"- If the user names an agent that is not listed, say it was not found and stop; do not suggest a different listed agent.",
 		"</subagent-rules>",
 	].join("\n");
@@ -118,15 +48,7 @@ export function getAgentListSignature(
 		entries.map((entry) => ({
 			name: entry.name,
 			source: entry.source,
-			mode: entry.mode,
-			sessionMode: entry.sessionMode,
-			async: entry.async,
-			autoExit: entry.autoExit,
 			description: entry.description,
-			model: entry.model,
-			thinking: entry.thinking,
-			allowedModels: entry.allowedModels,
-			allowModelOverride: entry.allowModelOverride,
 		})),
 	);
 }

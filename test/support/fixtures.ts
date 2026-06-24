@@ -1,5 +1,5 @@
-import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getEntries } from "../../src/session/session.ts";
 
@@ -23,72 +23,6 @@ export function writeExecutable(dir: string, name: string, content: string): str
 	writeFileSync(file, content);
 	chmodSync(file, 0o755);
 	return file;
-}
-
-export function getAgentConfigDirForTest(): string {
-	return process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
-}
-
-export function resolveSubagentCwdForTest(
-	rawCwd: string | null,
-	baseCwd = process.cwd(),
-): string {
-	if (!rawCwd) return baseCwd;
-	return rawCwd.startsWith("/") ? rawCwd : join(baseCwd, rawCwd);
-}
-
-export function _loadAgentDefaultsForTest(
-	agentName: string,
-	cwdHint?: string | null,
-) {
-	const baseCwd = resolveSubagentCwdForTest(cwdHint ?? null);
-	const configDir = getAgentConfigDirForTest();
-	const paths = [
-		{ path: join(baseCwd, ".pi", "agents", `${agentName}.md`), cwdBase: baseCwd },
-		{ path: join(configDir, "agents", `${agentName}.md`), cwdBase: configDir },
-	];
-	for (const { path, cwdBase } of paths) {
-		if (!existsSync(path)) continue;
-		const content = readFileSync(path, "utf8");
-		const match = content.match(/^---\n([\s\S]*?)\n---/);
-		if (!match) continue;
-		const frontmatter = match[1];
-		const get = (key: string) => {
-			const m = frontmatter.match(new RegExp(`^${key}:\\s*(.+)$`, "m"));
-			return m ? m[1].trim() : undefined;
-		};
-		const systemPromptRaw = get("system-prompt");
-		const noContextFilesRaw = get("no-context-files");
-		const noSessionRaw = get("no-session");
-		const extensionsRaw = get("extensions");
-		const modeRaw = get("mode");
-		return {
-			systemPromptMode:
-				systemPromptRaw === "append" || systemPromptRaw === "replace"
-					? systemPromptRaw
-					: undefined,
-			cwd: get("cwd"),
-			cwdBase,
-			extensions: extensionsRaw,
-			noContextFiles:
-				noContextFilesRaw === "true"
-					? true
-					: noContextFilesRaw === "false"
-						? false
-						: undefined,
-			noSession:
-				noSessionRaw === "true"
-					? true
-					: noSessionRaw === "false"
-						? false
-						: undefined,
-			mode:
-				modeRaw === "background" || modeRaw === "interactive"
-					? modeRaw
-					: undefined,
-		};
-	}
-	return null;
 }
 
 export function createForkSessionFileForTest(

@@ -2,7 +2,6 @@ import { runningSubagents, completedSubagentResults } from "../../runtime/state.
 import { getEffectiveAgentDefinitions, loadAgentDefaults, type AgentDefaults } from "../../agents/definitions.ts";
 import { readSubagentLaunchMetadata, getSubagentActivityStartIndex, type PersistedSubagentLaunchMetadata } from "../../session/session-files.ts";
 import { getEntries } from "../../session/session.ts";
-import { stopRunningSubagent } from "../../runtime/wiring.ts";
 import type { CompletedSubagentResult, RunningSubagent, SessionContentBlock, SessionMessageLike, SessionUsage } from "../../types.ts";
 import type { DetailSection, OverlayContext, OverlayItem } from "./render-types.ts";
 import { compactCount, firstLine, formatElapsed, formatElapsedSeconds } from "./render-helpers.ts";
@@ -21,25 +20,17 @@ const SECTION_FIELDS = [
 	},
 	{
 		title: "Runtime",
-		fields: ["mode", "session-mode", "async", "auto-exit", "parent-close", "no-session", "timeout", "launched"],
+		fields: ["launched", "timeout", "auto-exit", "context", "trust"],
 	},
 	{
 		title: "Model",
-		fields: ["model", "thinking", "resolved", "allow-model-override", "override-model", "override-thinking"],
-	},
-	{
-		title: "Workspace",
-		fields: ["cwd", "trust-project", "flags", "env"],
+		fields: ["model", "thinking", "resolved"],
 	},
 	{
 		title: "Capabilities",
-		fields: ["tools", "deny-tools", "extensions", "skills", "inject-skills", "spawning", "no-context-files"],
+		fields: ["tools", "skills", "extensions", "spawning"],
 	},
 ];
-
-function none(value?: string | null): string {
-	return value && value.trim() ? value : "none";
-}
 
 function inherited(value?: string | null): string {
 	return value && value.trim() ? value : "default";
@@ -66,34 +57,13 @@ function buildSections(
 	if (meta?.modelRef) {
 		fields.push({ label: "resolved", value: meta.modelRef });
 	}
-	fields.push({ label: "allow-model-override", value: String(meta ? meta.allowModelOverride === true : defs?.allowModelOverride === true) });
-	if (meta?.modelSource === "launch-override" || meta?.modelSource === "resume-override") {
-		fields.push({ label: "override-model", value: inherited(meta.model) });
-		fields.push({ label: "override-thinking", value: inherited(meta.thinking) });
-	}
-	fields.push({ label: "mode", value: "background" });
-	fields.push({ label: "cwd", value: meta?.cwd ?? defs?.cwd ?? "parent cwd" });
-	fields.push({ label: "trust-project", value: String(meta ? (meta.trustProject ?? false) : (defs?.trustProject ?? false)) });
-	fields.push({ label: "flags", value: none(meta?.flags ?? defs?.flags) });
-	fields.push({ label: "env", value: none(meta?.env ?? defs?.env) });
-	fields.push({ label: "tools", value: meta?.tools ?? defs?.tools ?? "all" });
-	fields.push({ label: "deny-tools", value: none(defs?.denyTools) });
-	fields.push({
-		label: "extensions",
-		value: meta?.extensions?.length ? meta.extensions.join(", ") : "all",
-	});
-	fields.push({ label: "skills", value: meta?.skills ?? defs?.skills ?? "all" });
-	fields.push({ label: "inject-skills", value: none(meta?.injectSkills ?? defs?.injectSkills) });
-	fields.push({ label: "spawning", value: String(defs?.spawning ?? false) });
-	fields.push({
-		label: "no-context-files",
-		value: String(meta ? meta.noContextFiles : (defs?.noContextFiles ?? false)),
-	});
-	fields.push({ label: "async", value: "false" });
-	fields.push({ label: "auto-exit", value: String(meta ? (meta.autoExit ?? false) : (defs?.autoExit ?? false)) });
-	fields.push({ label: "session-mode", value: (meta?.sessionMode ?? defs?.sessionMode ?? "lineage-only") as string });
-	fields.push({ label: "parent-close", value: (meta?.parentClosePolicy ?? defs?.parentClosePolicy ?? "terminate") as string });
-	fields.push({ label: "no-session", value: String(meta ? meta.noSession : (defs?.noSession ?? false)) });
+	fields.push({ label: "tools", value: meta?.tools ?? defs?.tools ?? "default" });
+	fields.push({ label: "skills", value: "none" });
+	fields.push({ label: "extensions", value: "none" });
+	fields.push({ label: "spawning", value: "false" });
+	fields.push({ label: "auto-exit", value: "true" });
+	fields.push({ label: "context", value: "fresh brief" });
+	fields.push({ label: "trust", value: "untrusted; project context disabled" });
 	fields.push({ label: "timeout", value: defs?.timeout != null ? `${defs.timeout}s` : "none" });
 
 	return SECTION_FIELDS.map((section) => ({
@@ -329,15 +299,8 @@ export function buildRunningItems(ctx: OverlayContext): OverlayItem[] {
 			stats,
 			activity: a.activity ?? a.taskPreview ?? "starting…",
 			detailSections: sections,
-			canKill: true,
-			canResume: false,
+			canKill: false,
 			sessionFile: a.sessionFile,
-			onKill: async () => {
-				const ok = await ctx.ui.confirm("Kill subagent?", `Stop "${a.name}"?`);
-				if (!ok) return;
-				stopRunningSubagent(a);
-				ctx.ui.notify(`Stopped ${a.name}`, "info");
-			},
 		});
 	}
 	return items;
@@ -392,7 +355,6 @@ export async function buildCompletedItems(ctx: OverlayContext): Promise<OverlayI
 			activity: summary,
 			detailSections: sections,
 			canKill: false,
-			canResume: true,
 			sessionFile: r.sessionFile,
 		});
 	}
@@ -435,7 +397,6 @@ export async function buildCompletedItems(ctx: OverlayContext): Promise<OverlayI
 					activity: summary,
 					detailSections: sections,
 					canKill: false,
-					canResume: true,
 					sessionFile: recovered.sessionFile,
 				});
 			}
@@ -467,7 +428,6 @@ export function buildAgentItems(_ctx: OverlayContext): OverlayItem[] {
 			activity: d.description ? firstLine(d.description, 60) : "(no description)",
 			detailSections: sections,
 			canKill: false,
-			canResume: false,
 		};
 	});
 }

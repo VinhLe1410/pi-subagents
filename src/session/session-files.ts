@@ -36,22 +36,11 @@ export interface PersistedSubagentLaunchMetadata {
 	sessionMode: SubagentSessionMode;
 	autoExit?: boolean;
 	parentClosePolicy: ParentClosePolicy;
-	/** @deprecated compatibility field; runtime ignores and waits for completion. */
-	blocking?: boolean;
-	/** @deprecated compatibility field; runtime ignores and waits for completion. */
-	async: boolean;
 	model?: string;
 	thinking?: string;
 	modelRef?: string;
 	definitionModel?: string;
 	definitionThinking?: string;
-	allowedModels?: string;
-	allowModelOverride?: boolean;
-	modelSource?: "parent" | "agent" | "launch-override" | "resume-override";
-	requestedModelOverride?: string;
-	requestedThinkingOverride?: string;
-	ignoredModelOverride?: string;
-	ignoredThinkingOverride?: string;
 	tools?: string;
 	skills?: string;
 	injectSkills?: string;
@@ -65,10 +54,6 @@ export interface PersistedSubagentLaunchMetadata {
 	systemPromptMode?: "append" | "replace";
 	systemPrompt?: string;
 	boundarySystemPrompt: boolean;
-	taskExpansion?: "shell";
-
-	flags?: string;
-	env?: string;
 }
 
 const SUBAGENT_LAUNCH_METADATA_CUSTOM_TYPE =
@@ -368,10 +353,8 @@ export function readSubagentExtensionEntry(path: string): string[] | undefined {
 
 export function resolveEffectiveSessionMode(
 	_params: Partial<SubagentParamsInput>,
-	agentDefs: AgentDefaults | null,
+	_agentDefs: AgentDefaults | null,
 ): SubagentSessionMode {
-	if (agentDefs?.sessionMode) return agentDefs.sessionMode;
-	if (agentDefs?.fork) return "fork";
 	return "lineage-only";
 }
 
@@ -402,9 +385,8 @@ export function buildPiPromptArgs(
 
 export function buildIdentityBlock(
 	agentDefs: AgentDefaults | null,
-	systemPrompt?: string,
 ): string {
-	return [agentDefs?.body, systemPrompt]
+	return [agentDefs?.body]
 		.filter(
 			(value): value is string =>
 				typeof value === "string" && value.trim() !== "",

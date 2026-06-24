@@ -13,7 +13,7 @@ export const completedSubagentResults = new Map<string, CompletedSubagentResult>
 
 function getSubagentCompletionStatus(
 	result: SubagentResult,
-	running?: Pick<RunningSubagent, "mode" | "autoExit">,
+	_running?: Pick<RunningSubagent, "autoExit">,
 ): SubagentCompletionStatus {
 	if (result.error === "cancelled") return "cancelled";
 	// Provider/network errors may set errorMessage with exitCode 0
@@ -32,11 +32,9 @@ export function buildCompletedSubagentResult(
 		...result,
 		id: running.id,
 		agent: running.agent,
-		mode: running.mode,
 		status: getSubagentCompletionStatus(result, running),
 		deliveryState: running.deliveryState,
 		parentClosePolicy: running.parentClosePolicy,
-		async: running.async !== false,
 		autoExit: running.autoExit,
 		deliveredTo: null,
 	};

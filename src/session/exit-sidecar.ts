@@ -1,10 +1,9 @@
 import { existsSync, readFileSync, rmSync } from "node:fs";
 
 export interface SubagentExitSignal {
-	reason: "done" | "ping" | "error";
+	reason: "done" | "error";
 	exitCode: number;
 	outputTokens?: number;
-	ping?: { name: string; message: string };
 	errorMessage?: string;
 }
 
@@ -27,19 +26,6 @@ function withDefinedTokens(
 function interpretExitSidecar(data: unknown): SubagentExitSignal {
 	const record = data as Record<string, unknown> | null;
 	const tokens = typeof record?.outputTokens === "number" ? record.outputTokens : undefined;
-	if (record?.type === "ping") {
-		return withDefinedTokens(
-			{
-				reason: "ping",
-				exitCode: 0,
-				ping: {
-					name: typeof record.name === "string" ? record.name : "subagent",
-					message: typeof record.message === "string" ? record.message : "",
-				},
-			},
-			tokens,
-		);
-	}
 	if (record?.type === "error") {
 		const errorMessage =
 			typeof record.errorMessage === "string" && record.errorMessage.trim() !== ""

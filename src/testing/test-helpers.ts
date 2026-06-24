@@ -25,7 +25,6 @@ import {
 	splitModelRefThinking,
 	type PreparedSubagentLaunch,
 } from "../launch/prep.ts";
-import { resolveResumeLaunchMetadataForInvocation } from "../runtime/resume-service.ts";
 import {
 	enforceAgentFrontmatter,
 	getSubagentAgentOverrideError,
@@ -41,13 +40,6 @@ import {
 	renderAgentListReminder,
 	type AgentListEntry,
 } from "../agents/agent-list.ts";
-import {
-	buildResumePiArgs,
-	buildShellChangeDirectoryPrefix,
-	getResumeCwd,
-	resolveResumeLaunchMetadata,
-	type ResumeMode,
-} from "../launch/resume.ts";
 import {
 	resolveSubagentRuntimePaths,
 } from "../launch/runtime-paths.ts";
@@ -65,15 +57,13 @@ import {
 	resolveEffectiveSessionMode,
 	resolveTaskSessionMode,
 	type PersistedSubagentLaunchMetadata,
+	type ResumeMode,
 	type SubagentSessionMode,
 	writeSubagentLaunchMetadataEntryWhenReady,
 	writeSubagentModelStateEntries,
 } from "../session/session-files.ts";
 import { ChildSessionStorage } from "../session/child-session-storage.ts";
-import {
-	writeResumeTaskArtifact,
-	writeSystemPromptArtifact,
-} from "../launch/prompt-artifacts.ts";
+import { writeSystemPromptArtifact } from "../launch/prompt-artifacts.ts";
 import {
 	addToolModeDeniedNames,
 	getSubagentToolAllowlist,
@@ -248,15 +238,6 @@ export function getPersistedSessionParityArgsForTest(
 	return getPersistedSessionParityArgs(metadata, modeOverride);
 }
 
-export function resolveResumeLaunchMetadataForInvocationForTest(
-	metadata: PersistedSubagentLaunchMetadata | undefined,
-	requestedModel: string | undefined,
-	modelRegistry?: Parameters<typeof resolveResumeLaunchMetadataForInvocation>[3],
-	requestedThinking?: string,
-) {
-	return resolveResumeLaunchMetadataForInvocation(metadata, requestedModel, requestedThinking, modelRegistry);
-}
-
 export function splitModelRefThinkingForTest(
 	model: string | undefined,
 	fallbackThinking: string | undefined,
@@ -306,15 +287,6 @@ export function writeSystemPromptArtifactForTest(
 	ctx: { sessionManager: { getSessionId(): string }; cwd: string },
 ) {
 	return writeSystemPromptArtifact(name, systemPrompt, ctx);
-}
-
-export function writeResumeTaskArtifactForTest(
-	name: string,
-	task: string,
-	sessionFile: string,
-	cwd: string,
-) {
-	return writeResumeTaskArtifact(name, task, sessionFile, cwd);
 }
 
 export function resolveSubagentRuntimePathsForTest(
@@ -410,7 +382,7 @@ export function getFlagsLaunchArgs(flags: string | undefined) {
 }
 
 export function getApprovalLaunchArgsForTest(
-	agentDefs: Pick<AgentDefaults, "trustProject"> | null | undefined,
+	agentDefs: AgentDefaults | null | undefined,
 	mode: ResumeMode,
 ) {
 	return getApprovalLaunchArgs(agentDefs, mode);
@@ -456,28 +428,9 @@ export function getBaseSubagentEnvVarsForTest(
 	);
 }
 
-export function getResumeCwdForTest(
-	metadata: PersistedSubagentLaunchMetadata | undefined,
-) {
-	return getResumeCwd(metadata);
-}
-
 export function buildShellChangeDirectoryPrefixForTest(cwd: string | undefined) {
-	return buildShellChangeDirectoryPrefix(cwd);
-}
-
-export function resolveResumeLaunchMetadataForTest(
-	sessionFile: string,
-	explicitMode?: ResumeMode,
-) {
-	return resolveResumeLaunchMetadata(sessionFile, explicitMode);
-}
-
-export function buildResumePiArgsForTest(
-	sessionFile: string,
-	mode: ResumeMode = "background",
-) {
-	return buildResumePiArgs(sessionFile, mode);
+	if (!cwd) return "";
+	return `cd ${JSON.stringify(cwd)} && `;
 }
 
 export function getNoSessionSeedModeForTest(sessionMode: SubagentSessionMode) {

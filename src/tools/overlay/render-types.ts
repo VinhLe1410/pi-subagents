@@ -35,7 +35,6 @@ export interface OverlayItem {
 	activity: string;
 	detailSections: DetailSection[];
 	canKill: boolean;
-	canResume: boolean;
 	sessionFile?: string;
 	onKill?: () => Promise<void>;
 }

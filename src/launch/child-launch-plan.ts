@@ -1,7 +1,6 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentDefaults } from "../agents/definitions.ts";
-import { assertModelAllowed } from "../agents/model-refs.ts";
 import { buildSubagentSessionTitle } from "../agents/titles.ts";
 import {
 	generateSubagentSessionFile,
@@ -155,7 +154,6 @@ export async function buildChildLaunchPlan(
 	options: ChildLaunchPlanOptions,
 ): Promise<ChildLaunchPlan> {
 	const { params, agentDefs, parentCwd, parentSessionDir } = options;
-	const hasAllowedModels = !!agentDefs?.allowedModels?.trim();
 	const resolveRef = (
 		model: string | undefined,
 		fallbackThinking: string | undefined,
@@ -163,36 +161,19 @@ export async function buildChildLaunchPlan(
 	): { effectiveModel?: string; effectiveThinking?: string; effectiveModelRef?: string } => {
 		const split = splitModelRefThinking(model, fallbackThinking);
 		const explicit = split.explicitThinking || opts.explicitThinking;
-		// Resolve a bare id (no provider) through the registry only when this is a
-		// launch override or when this agent opts into allowed-models; otherwise
-		// pass it through untouched so agents without the feature keep Pi's native
-		// model resolution.
-		const shouldResolve = !!split.model && (opts.resolveAlways || (hasAllowedModels && !split.model.includes("/")));
+		const shouldResolve = !!split.model && opts.resolveAlways;
 		const available = shouldResolve
 			? resolveAvailableModelRef(split.model, split.thinking, explicit, options.modelRegistry, options.parentModelRef)
 			: split;
 		return normalizeModelRef(available.model, available.thinking);
 	};
 
-	const requestedModel = params.model ?? agentDefs?.model ?? options.parentModelRef;
+	const requestedModel = agentDefs?.model ?? options.parentModelRef;
 	const { effectiveModel, effectiveThinking, effectiveModelRef } = resolveRef(
 		requestedModel,
-		params.thinking ?? agentDefs?.thinking ?? options.parentThinking,
-		{ resolveAlways: params.model != null, explicitThinking: params.thinking != null },
+		agentDefs?.thinking ?? options.parentThinking,
+		{ resolveAlways: false, explicitThinking: false },
 	);
-	if (hasAllowedModels) {
-		const defaultModelRef = resolveRef(
-			agentDefs?.model ?? options.parentModelRef,
-			agentDefs?.thinking ?? options.parentThinking,
-			{ resolveAlways: false, explicitThinking: false },
-		).effectiveModelRef;
-		assertModelAllowed(
-			effectiveModelRef,
-			agentDefs?.allowedModels,
-			params.agent,
-			defaultModelRef ? [defaultModelRef] : [],
-		);
-	}
 
 	const runtimePaths = resolveSubagentRuntimePaths(
 		params,
@@ -205,9 +186,9 @@ export async function buildChildLaunchPlan(
 			? join(tmpdir(), "pi-subagents", "sessions")
 			: runtimePaths.sessionDir,
 	);
-	const tools = params.tools ?? agentDefs?.tools;
-	const skills = params.skills ?? agentDefs?.skills;
-	const injectSkills = agentDefs?.injectSkills;
+	const tools = agentDefs?.tools;
+	const skills = "none";
+	const injectSkills = undefined;
 	const extensions = resolveSubagentExtensions(agentDefs);
 	const denySet = addToolModeDeniedNames(resolveDenyTools(agentDefs), tools);
 	const skillLaunchPlan = await buildSkillLaunchPlan(

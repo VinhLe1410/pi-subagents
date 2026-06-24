@@ -1,7 +1,7 @@
 {
   "name": "pi-subagents",
   "version": "2.5.1",
-  "description": "Serious subagent runtime for pi with background child agents",
+  "description": "Simple blocking subagent helper runtime for pi",
   "keywords": [
     "pi-package"
   ],

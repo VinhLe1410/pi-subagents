@@ -1,7 +1,7 @@
 import type { ChildProcess } from "node:child_process";
 
-export type DeliveryState = "detached" | "awaited";
 export type ParentClosePolicy = "terminate" | "continue";
+type DeliveryState = "detached" | "awaited";
 type CompletedDelivery = "steer" | "wait";
 export type SubagentCompletionStatus = "completed" | "failed" | "cancelled";
 export type ParentShutdownAction = "terminate" | "continue";
@@ -11,31 +11,11 @@ export interface SubagentParamsInput {
 	task: string;
 	title: string;
 	agent: string;
-	systemPrompt?: string;
-	model?: string;
-	thinking?: string;
-	skills?: string;
-	injectSkills?: string;
-	tools?: string;
-	cwd?: string;
-	fork?: boolean;
-	/** @deprecated compatibility field; runtime ignores and launches in background. */
-	background?: boolean;
-	/** @deprecated compatibility field; runtime ignores and waits for completion. */
-	async?: boolean;
-	/** @deprecated compatibility field; runtime ignores and waits for completion. */
-	blocking?: boolean;
 }
 
 export interface WaitParams {
 	id: string;
 	timeout?: number;
-	onTimeout?: "error" | "return_pending" | "detach" | "return";
-}
-
-interface SubagentPing {
-	name: string;
-	message: string;
 }
 
 export interface SubagentResult {
@@ -48,20 +28,14 @@ export interface SubagentResult {
 	outputTokens?: number;
 	error?: string;
 	errorMessage?: string;
-	ping?: SubagentPing;
 }
 
 export interface CompletedSubagentResult extends SubagentResult {
 	id: string;
 	agent?: string;
-	mode: "interactive" | "background";
 	status: SubagentCompletionStatus;
 	deliveryState: DeliveryState;
 	parentClosePolicy: ParentClosePolicy;
-	/** @deprecated compatibility field; runtime ignores and waits for completion. */
-	blocking?: boolean;
-	/** @deprecated compatibility field; runtime ignores and waits for completion. */
-	async: boolean;
 	autoExit?: boolean;
 	deliveredTo: CompletedDelivery | null;
 }
@@ -72,14 +46,9 @@ export interface RunningSubagent {
 	task: string;
 	title?: string;
 	agent?: string;
-	mode: "interactive" | "background";
 	executionState: "starting" | "running";
 	deliveryState: DeliveryState;
 	parentClosePolicy: ParentClosePolicy;
-	/** @deprecated compatibility field; runtime ignores and waits for completion. */
-	blocking?: boolean;
-	/** @deprecated compatibility field; runtime ignores and waits for completion. */
-	async?: boolean;
 	autoExit?: boolean;
 	noSession?: boolean;
 	resultOwner?: { kind: CompletedDelivery; ownerId: string };
@@ -121,7 +90,6 @@ export interface StartedSubagentToolDetails {
 	error?: string;
 	deliveryState?: string;
 	parentClosePolicy?: string;
-	async?: boolean;
 	autoExit?: boolean;
 }
 
@@ -169,24 +137,6 @@ export interface SubagentResultMessageDetails {
 	outputTokens?: number;
 	error?: string;
 	errorMessage?: string;
-}
-
-export interface SubagentPingMessageDetails {
-	id?: string;
-	name?: string;
-	task?: string;
-	agent?: string;
-	mode?: "interactive" | "background";
-	deliveryState?: DeliveryState;
-	parentClosePolicy?: ParentClosePolicy;
-	/** @deprecated compatibility field; runtime ignores and waits for completion. */
-	blocking?: boolean;
-	/** @deprecated compatibility field; runtime ignores and waits for completion. */
-	async?: boolean;
-	elapsed?: number;
-	sessionFile?: string;
-	outputTokens?: number;
-	message?: string;
 }
 
 export interface WidgetThemeLike {

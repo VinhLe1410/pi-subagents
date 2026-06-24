@@ -37,7 +37,6 @@ import {
 	stopRunningSubagent,
 	watchBackgroundSubagent,
 	widgetManager,
-	wireSubagentSteerBack,
 } from "./runtime/wiring.ts";
 export {
 	getCompletedSubagentResultForTest,
@@ -60,7 +59,6 @@ import {
 import { ORCHESTRATOR_ALLOWED_TOOL_NAMES, SUBAGENT_TOOL_NAME } from "./tools/tool-names.ts";
 import { registerSubagentCommands } from "./tools/commands.ts";
 import { registerSubagentMessageRenderers } from "./tools/message-renderers.ts";
-import { registerSubagentResumeTool } from "./tools/resume-tool.ts";
 import { markInitialPromptLaunchComplete, registerSubagentCoreTools } from "./tools/subagent-tools.ts";
 import { traceSubagentLaunch } from "./launch/trace.ts";
 import { registerSubagentsView } from "./tools/subagents-view.ts";
@@ -132,11 +130,8 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 	// Orchestrator mode constants (defined before use in session_start/before_agent_start)
 	const ORCHESTRATOR_MODE = process.env.PI_ORCHESTRATOR_MODE === "1";
 	const ORCHESTRATOR_ALLOWED_TOOLS = ORCHESTRATOR_ALLOWED_TOOL_NAMES;
-	let latestContext: ExtensionContext | undefined;
-
 	// Capture the UI context early so the widget keeps a stable slot above tasks.
 	pi.on("session_start", (event, ctx) => {
-		latestContext = ctx;
 		resetSubagentBatchStopRequest();
 		applySubagentLineage(ctx);
 		attachWidgetContext(ctx);
@@ -184,9 +179,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 
 ## Your tools
 
-- **subagent** — Spawn one or more sub-agents for research, implementation, review, or other substantive work. Each sub-agent has its own tools and context based on its agent definition.
-- **subagent_resume** — Continue a previous sub-agent session with follow-up instructions. The sub-agent retains its full context from the previous run.
-- **subagent_kill** — Stop a running sub-agent.
+- **subagent** — Spawn one or more sub-agents for research, implementation, review, or other substantive work. Each sub-agent has its own tools and prompt based on its agent definition.
 
 Sub-agent results arrive as tool output from the launch call. Never fabricate or predict results that have not arrived.
 
@@ -203,20 +196,6 @@ Fix the null pointer in src/auth/validate.ts:42. The user field on Session (src/
 \`\`\`
 Based on your findings, fix the auth bug.
 \`\`\`
-
-### Continue vs spawn fresh
-
-When you have sub-agent results and need follow-up work:
-
-| Situation | Mechanism |
-|-----------|-----------|
-| Sub-agent just explored the files that need editing | **Resume** — it already has relevant context |
-| Research was broad but the implementation is narrow | **Spawn fresh** — avoid dragging exploration noise |
-| Correcting a failure or extending recent work | **Resume** — it has the error context |
-| Verifying code a different agent just wrote | **Spawn fresh** — fresh eyes avoid confirmation bias |
-| First attempt used the wrong approach entirely | **Spawn fresh** — clean slate avoids anchoring |
-
-Think about how much of the sub-agent\'s context overlaps with the next task. High overlap → resume. Low overlap → spawn fresh.
 
 ### Parallel delegation
 
@@ -236,7 +215,7 @@ Your most important job is synthesis: reading sub-agent outputs, understanding t
 ## Rules
 
 - Do not use sub-agents for trivial work you can handle by chatting with the user — answer questions directly when possible.
-- Do not set the model parameter on sub-agents — their agent definitions handle model selection.`;
+- Do not set model or thinking on sub-agents — their agent definitions handle model selection, otherwise children inherit the parent.`;
 
 	pi.on("before_agent_start", (event) => {
 		const rosterResult = pendingAmbientRoster
@@ -327,23 +306,8 @@ Your most important job is synthesis: reading sub-agent outputs, understanding t
 		launchBackgroundSubagent,
 		watchBackgroundSubagent,
 		getWatcherSignal,
-		wireSubagentSteerBack,
 		startWidgetRefresh,
 		getLaunchedSubagentResult,
-		stopRunningSubagent,
-	});
-
-	registerSubagentResumeTool(pi, shouldRegister, {
-		watchBackgroundSubagent,
-		getWatcherSignal,
-		wireSubagentSteerBack,
-		startWidgetRefresh,
-		getLaunchedSubagentResult,
-		runningSubagents,
-		getContextWindow: (modelRef) => widgetManager.resolveModelContextWindow(modelRef),
-		modelRegistry: {
-			getAvailable: () => latestContext?.modelRegistry.getAvailable() ?? [],
-		},
 	});
 
 	registerSubagentCommands(pi, {
@@ -353,13 +317,8 @@ Your most important job is synthesis: reading sub-agent outputs, understanding t
 	registerSubagentMessageRenderers(pi, formatElapsed);
 
 	registerSubagentsView(pi, {
-		watchBackgroundSubagent,
-		getWatcherSignal,
 		startWidgetRefresh,
-		getContextWindow: (modelRef) => widgetManager.resolveModelContextWindow(modelRef),
-		runningSubagents,
 		pi,
-		wireSubagentSteerBack,
 	});
 
 }

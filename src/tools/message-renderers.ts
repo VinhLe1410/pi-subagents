@@ -1,10 +1,7 @@
 import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { keyHint } from "@earendil-works/pi-coding-agent";
 import { Box, Text } from "@earendil-works/pi-tui";
-import type {
-	SubagentPingMessageDetails,
-	SubagentResultMessageDetails,
-} from "../types.ts";
+import type { SubagentResultMessageDetails } from "../types.ts";
 
 type ThemeLike = Parameters<Parameters<ExtensionAPI["registerMessageRenderer"]>[1]>[2];
 type RenderOptions = { expanded: boolean };
@@ -20,10 +17,7 @@ type SubagentCompletionDetails = SubagentResultMessageDetails & {
 	id?: string;
 	name?: string;
 	status?: string;
-	mode?: "interactive" | "background";
 	deliveryState?: string;
-	blocking?: boolean;
-	async?: boolean;
 	autoExit?: boolean;
 	summary?: string;
 	task?: string;
@@ -54,7 +48,7 @@ function expandHint(): string {
 }
 
 function stripSessionRef(text: string): string {
-	return text.replace(/\n\nSession: .+\nResume: .+$/, "");
+	return text.replace(/\n\nSession: .+$/, "");
 }
 
 function firstTextContent(result: AgentToolResult<unknown>): string {
@@ -171,7 +165,6 @@ export function formatSubagentCompletionLines(
 	if (options.expanded && details?.sessionFile) {
 		lines.push("");
 		lines.push(theme.fg("dim", `Session: ${details.sessionFile}`));
-		lines.push(theme.fg("dim", `Resume:  pi --session ${details.sessionFile}`));
 	}
 	return lines;
 }
@@ -199,7 +192,6 @@ export function formatSubagentBatchLines(
 		if (options.expanded && child.sessionFile) {
 			lines.push("");
 			lines.push(theme.fg("dim", `Session: ${child.sessionFile}`));
-			lines.push(theme.fg("dim", `Resume:  pi --session ${child.sessionFile}`));
 		}
 	});
 
@@ -257,44 +249,6 @@ export function registerSubagentMessageRenderers(
 						0,
 					),
 				);
-				return ["", ...box.render(width)];
-			},
-		};
-	});
-
-	pi.registerMessageRenderer("subagent_ping", (message, options, theme) => {
-		const details = message.details as SubagentPingMessageDetails | undefined;
-		if (!details) return undefined;
-
-		return {
-			invalidate() {},
-			render(width: number): string[] {
-				const name = details.name ?? "subagent";
-				const elapsed =
-					details.elapsed != null ? formatElapsed(details.elapsed) : "?";
-				const agentTag = details.agent
-					? theme.fg("dim", ` (${details.agent})`)
-					: "";
-				const header = `${theme.fg("accent", "?")} ${theme.fg("toolTitle", theme.bold(name))}${agentTag} ${theme.fg("dim", "—")} needs help ${theme.fg("dim", `(${elapsed})`)}`;
-				const rawMessage =
-					details.message ??
-					(typeof message.content === "string" ? message.content : "");
-				const body = stripSessionRef(rawMessage);
-				const contentLines = [header];
-
-				appendExpandableLines(contentLines, body, options, theme, 4);
-				if (options.expanded && details.sessionFile) {
-					contentLines.push("");
-					contentLines.push(theme.fg("dim", `Session: ${details.sessionFile}`));
-					contentLines.push(
-						theme.fg("dim", `Resume:  pi --session ${details.sessionFile}`),
-					);
-				}
-
-				const box = new Box(1, 1, (text: string) =>
-					theme.bg("toolPendingBg", text),
-				);
-				box.addChild(new Text(contentLines.join("\n"), 0, 0));
 				return ["", ...box.render(width)];
 			},
 		};

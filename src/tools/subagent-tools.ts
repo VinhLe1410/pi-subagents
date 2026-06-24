@@ -7,16 +7,12 @@ import {
 	getSubagentAgentRequirementError,
 } from "../launch/policy.ts";
 import type { SubagentLaunchContext } from "../launch/prep.ts";
-import { findRunningSubagent } from "../runtime/running-registry.ts";
 import type { RunningSubagent, SubagentParamsInput, SubagentResult } from "../types.ts";
 import { asSubagentToolResult } from "../runtime/state.ts";
 
 import { formatSubagentBatchLines, formatTaskPreview, renderSubagentCompletionText } from "./message-renderers.ts";
 import { getSubagentToolsWarning } from "./policy.ts";
-import {
-	SUBAGENT_KILL_TOOL_NAME,
-	SUBAGENT_TOOL_NAME,
-} from "./tool-names.ts";
+import { SUBAGENT_TOOL_NAME } from "./tool-names.ts";
 
 let initialPromptLaunchActive = isInitialPromptInvocation();
 
@@ -26,35 +22,22 @@ const SUBAGENT_NAME_DESCRIPTION =
 const SUBAGENT_TITLE_DESCRIPTION =
 	"Required human title for this child session/widget. Use sentence case, 3-8 words, outcome/objective focused, and not a prompt or instruction; examples: Auth implementation map, Local diff bug review.";
 
-const SUBAGENT_MODEL_DESCRIPTION =
-	"Model routing/cost control only. Omit unless the user named a concrete model for this launch. " +
-	"Do not infer a model from quality, depth, urgency, safety, or cost language. " +
-	"Never invent or upgrade models. Format: provider/model; put provider/model:thinking suffix in `thinking`.";
-
-const SUBAGENT_THINKING_DESCRIPTION =
-	"Child runtime thinking level only. Omit unless the user named a concrete thinking level for this launch. " +
-	"Do not infer thinking from quality, depth, urgency, safety, or cost language. " +
-	"Allowed: off|minimal|low|medium|high|xhigh.";
+const TASK_DESCRIPTION = "Task/prompt for the sub-agent. The child has no previous conversation context by default; include objective, needed context, scope, relevant files/facts, constraints, completion criteria, and expected output.";
 
 const SubagentChildParams = Type.Object({
 	name: Type.String({ description: SUBAGENT_NAME_DESCRIPTION }),
-	task: Type.String({ description: "Task/prompt for the sub-agent. For non-trivial work, write readable Markdown: short paragraphs, bullets, or headings as appropriate. Use a one-line task only for trivial work." }),
+	task: Type.String({ description: TASK_DESCRIPTION }),
 	title: Type.String({ description: SUBAGENT_TITLE_DESCRIPTION }),
 	agent: Type.String({ description: "Required agent definition name. Reads .pi/agents/<name>.md or ~/.pi/agent/agents/<name>.md and refuses ad-hoc unnamed subagents." }),
-	model: Type.Optional(Type.String({ description: SUBAGENT_MODEL_DESCRIPTION })),
-	thinking: Type.Optional(Type.String({ description: SUBAGENT_THINKING_DESCRIPTION })),
 });
 
 const SubagentParams = Type.Object({
 	name: Type.Optional(Type.String({ description: SUBAGENT_NAME_DESCRIPTION })),
-	task: Type.Optional(Type.String({ description: "Task/prompt for a single sub-agent. For non-trivial work, write readable Markdown: short paragraphs, bullets, or headings as appropriate. Use a one-line task only for trivial work." })),
+	task: Type.Optional(Type.String({ description: TASK_DESCRIPTION })),
 	title: Type.Optional(Type.String({ description: SUBAGENT_TITLE_DESCRIPTION })),
 	agent: Type.Optional(Type.String({ description: "Required agent definition name for a single subagent launch." })),
-	model: Type.Optional(Type.String({ description: SUBAGENT_MODEL_DESCRIPTION })),
-	thinking: Type.Optional(Type.String({ description: SUBAGENT_THINKING_DESCRIPTION })),
-	children: Type.Optional(Type.Array(SubagentChildParams, { description: "Spawn multiple children in one deterministic launch. Use this instead of multiple separate subagent tool calls when a user asks for more than one agent." })),
+	children: Type.Optional(Type.Array(SubagentChildParams, { description: "Spawn multiple children in one deterministic launch. Use this instead of multiple separate subagent tool calls when the work can run in parallel." })),
 });
-const SubagentKillParams = Type.Object({ id: Type.String({ description: "Running subagent id or display name to stop" }) });
 
 type ToolResult = ReturnType<typeof asSubagentToolResult>;
 
@@ -65,10 +48,8 @@ export interface SubagentToolRuntime {
 	launchBackgroundSubagent(params: SubagentParamsInput, ctx: SubagentLaunchContext): Promise<RunningSubagent>;
 	watchBackgroundSubagent(running: RunningSubagent, signal: AbortSignal, timeout?: number): Promise<SubagentResult>;
 	getWatcherSignal(running: RunningSubagent, controller: AbortController): AbortSignal;
-	wireSubagentSteerBack(pi: ExtensionAPI, running: RunningSubagent, promise: Promise<SubagentResult>): void;
 	startWidgetRefresh(): void;
 	getLaunchedSubagentResult(running: RunningSubagent, signal?: AbortSignal): Promise<ToolResult>;
-	stopRunningSubagent(running: RunningSubagent): void;
 }
 
 type SubagentToolParams = Partial<SubagentParamsInput> & { children?: SubagentParamsInput[] };
@@ -129,15 +110,7 @@ async function launchOneSubagent(
 	runtime: SubagentToolRuntime,
 	pi: ExtensionAPI,
 ): Promise<RunningSubagent> {
-	const forceSynchronousLaunch = shouldForceSynchronousLaunch(ctx.hasUI);
-	const headlessAutoExit = forceSynchronousLaunch && agentDefs?.autoExit !== true ? true : undefined;
 	const effectiveParams = enforceAgentFrontmatter(params, agentDefs);
-	// Phase 2 runtime policy: obsolete async/blocking/background/mode config is
-	// ignored for normal launches. Every child runs hidden and the tool waits for
-	// completion before returning.
-	effectiveParams.async = false;
-	effectiveParams.blocking = true;
-	effectiveParams.background = true;
 
 	const parentModelRef = ctx.model
 		? `${ctx.model.provider}/${ctx.model.id}`
@@ -149,7 +122,7 @@ async function launchOneSubagent(
 		cwd: ctx.cwd,
 
 		launchToolCallId: toolCallId,
-		autoExit: headlessAutoExit,
+		autoExit: true,
 		modelRegistry: ctx.modelRegistry,
 		parentModelRef,
 		parentThinking,
@@ -235,35 +208,26 @@ export function registerSubagentCoreTools(
 		label: "Subagent",
 		description:
 			"Launch one or more named helper agents from the subagent roster and wait for completion. " +
-			"Agent definitions own model, tools, and context; obsolete UI/wait fields are ignored. " +
-			"This call chooses the agent name(s), task(s), and titles. " +
-			"Model/thinking are routing controls, not quality knobs; set them only when the user named concrete values.",
+			"This call chooses the agent name(s), task(s), and titles. Agent definitions own model, tools, and prompt behavior.",
 		promptSnippet:
-			"Subagents are separate helper processes you can launch to do work; this tool waits for their completion and returns the results as tool output.\n" +
+			"Subagents are separate hidden helper processes; this tool waits for completion and returns their results as tool output.\n" +
 			"\n" +
-			"Use this tool when a listed agent is a clear fit for specialist, complex, or parallel work. Do small direct work yourself: quick answers, simple file reads, and tiny one-shot edits.\n" +
-			"\n" +
-			"Use exact agent names and behavior fields from the subagent roster when present; field meanings are defined in <subagent-rules>.\n" +
+			"Use this tool when a listed agent is a clear fit for specialist, complex, or parallel work. Do small direct work yourself.\n" +
 			"\n" +
 			"How to call:\n" +
-			"- Use exact roster names in agent fields.\n" +
-			"- Always provide name and title. name is a machine handle: lower-kebab <scope>-<role>, 2-4 words, max 32 chars, e.g. auth-scout, diff-reviewer, session-tester. title is human prose: sentence case, 3-8 words, e.g. Auth implementation map.\n" +
-			"- If launching one helper, pass agent/name/title/task normally.\n" +
-			"- If launching multiple helpers for one user request, make one subagent call with children:[...] so all helpers start before any waiting happens.\n" +
-			"- If the user names multiple agents, include each named agent exactly once. Do not substitute one agent for another.\n" +
-			"- Leave model/thinking unset unless the user named concrete values. Do not infer them from quality, depth, urgency, safety, or cost language.\n" +
+			"- Use exact agent names from the roster. Do not invent or substitute agents.\n" +
+			"- Always provide name and title. name is a lower-kebab machine handle; title is a short human label.\n" +
+			"- If launching multiple helpers, use children:[...] so all helpers start before waiting.\n" +
+			"- Do not set model or thinking; agent markdown controls model defaults and missing values inherit from the parent.\n" +
 			"\n" +
 			"Writing tasks:\n" +
-			"- Translate the user's request into each helper's task; do not change the work just because of the agent name.\n" +
-			"- For non-trivial work, write readable Markdown with objective, scope, relevant files/facts, constraints, and requested output.\n" +
-			"- For parallel helpers, make each task non-overlapping.\n" +
+			"- Children do not have previous conversation context by default.\n" +
+			"- Include the objective, needed context, scope, relevant files/facts, constraints, completion criteria, and expected output.\n" +
+			"- For parallel helpers, make each task self-contained and non-overlapping.\n" +
 			"\n" +
-			"After launch:\n" +
-			"- Wait for the tool result and use the returned findings; do not redo delegated work while the helper is running.\n" +
-			"- Ask the user only when there is a plausible next step but ownership is ambiguous.\n" +
-			"Results are returned directly by this tool. Do not poll, sleep-read, or check session files — the harness handles delivery.\n",
+			"After launch: use the returned findings; do not poll, sleep-read, or inspect session files unless debugging.\n",
 		parameters: SubagentParams,
-		execute: async (toolCallId, params, _signal, _onUpdate, ctx) => {
+		execute: async (toolCallId, params, signal, _onUpdate, ctx) => {
 			const children = getRequestedChildren(params as SubagentToolParams);
 			const currentAgent = process.env.PI_SUBAGENT_AGENT;
 			const prepared = children.map((child) => {
@@ -282,11 +246,11 @@ export function registerSubagentCoreTools(
 			const warnings = prepared.map((entry) => entry.warning?.message ?? "");
 			const warningPrefix = warnings.filter(Boolean).join("\n\n");
 			if (launched.length === 1) {
-				const result = await runtime.getLaunchedSubagentResult(launched[0]);
+				const result = await runtime.getLaunchedSubagentResult(launched[0], signal);
 				return withToolWarning(result, warningPrefix);
 			}
 
-			const results = await Promise.all(launched.map((running) => runtime.getLaunchedSubagentResult(running)));
+			const results = await Promise.all(launched.map((running) => runtime.getLaunchedSubagentResult(running, signal)));
 			const texts = results.flatMap((result) => result.content).filter((block) => block.type === "text").map((block) => block.text);
 			const joined = texts.join("\n\n");
 			return asSubagentToolResult({
@@ -334,19 +298,6 @@ export function registerSubagentCoreTools(
 				return new Text("", 0, 0);
 			}
 			return renderSubagentCompletionText(result, options, theme, context.lastComponent instanceof Text ? context.lastComponent : undefined, true);
-		},
-	});
-
-	pi.registerTool({
-		name: SUBAGENT_KILL_TOOL_NAME, label: "Kill Subagent",
-		description: "Stop a running background subagent by id or display name.",
-		promptSnippet: "Stop a running background subagent by id or display name.",
-		parameters: SubagentKillParams,
-		execute: async (_toolCallId, params) => {
-			const match = findRunningSubagent(params.id);
-			if (!match.running) return asSubagentToolResult({ content: [{ type: "text" as const, text: match.error ?? "Subagent not found." }], details: { error: match.error ?? "not found" } });
-			runtime.stopRunningSubagent(match.running);
-			return asSubagentToolResult({ content: [{ type: "text" as const, text: `Stopping subagent "${match.running.name}" (${match.running.id}).` }], details: { id: match.running.id, name: match.running.name, status: "stopping" } });
 		},
 	});
 
