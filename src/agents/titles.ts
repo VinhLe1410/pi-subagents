@@ -1,13 +1,5 @@
 import type { SessionEntryLike, SubagentParamsInput } from "../types.ts";
 
-export function isSetTabTitleToolEnabled(): boolean {
-	return process.env.PI_SUBAGENT_ENABLE_SET_TAB_TITLE === "1";
-}
-
-function areSubagentSessionTitlesDisabled(): boolean {
-	return process.env.PI_SUBAGENT_DISABLE_SESSION_TITLES === "1";
-}
-
 const MAX_SUBAGENT_SESSION_TITLE_DESCRIPTION = 72;
 const MAX_SUBAGENT_SESSION_TITLE_WORDS = 15;
 
@@ -93,7 +85,6 @@ export type SubagentTitleParams = Pick<
 export function buildSubagentSessionTitle(
 	params: SubagentTitleParams,
 ): string | undefined {
-	if (areSubagentSessionTitlesDisabled()) return undefined;
 	const agentType = (params.agent ?? params.name).trim();
 	if (!agentType) return undefined;
 	const description = getSubagentDisplayTitle(params);

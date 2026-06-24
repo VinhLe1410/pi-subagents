@@ -47,26 +47,16 @@ export function parseCommandWords(command: string): string[] {
 
 	if (escaping) current += "\\";
 	if (quote !== null)
-		throw new Error("PI_SUBAGENT_PI_COMMAND has an unterminated quote");
+		throw new Error("Command string has an unterminated quote");
 	if (current) words.push(current);
 	return words;
 }
 
 /**
  * Resolve the correct pi binary path for spawn(). Handles node, bun,
- * bundled executables, and opt-in wrapper commands.
+ * and bundled executables.
  */
 export function getPiInvocation(args: string[]): PiInvocation {
-	const override = process.env.PI_SUBAGENT_PI_COMMAND?.trim();
-	if (override) {
-		const parts = parseCommandWords(override);
-		if (parts.length === 0) {
-			throw new Error("PI_SUBAGENT_PI_COMMAND did not contain a command");
-		}
-		return { command: parts[0], args: [...parts.slice(1), ...args] };
-	}
-
-
 	const currentScript = process.argv[1];
 	if (currentScript && existsSync(currentScript)) {
 		return { command: process.execPath, args: [currentScript, ...args] };

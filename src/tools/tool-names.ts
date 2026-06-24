@@ -12,10 +12,3 @@ export const SUBAGENT_LAUNCH_TOOL_NAMES: ReadonlySet<string> = new Set([
 	SUBAGENT_TOOL_NAME,
 ]);
 
-/**
- * Parent-side tools allowed when PI_ORCHESTRATOR_MODE=1 turns the parent
- * into a delegation-only orchestrator.
- */
-export const ORCHESTRATOR_ALLOWED_TOOL_NAMES: ReadonlySet<string> = new Set([
-	SUBAGENT_TOOL_NAME,
-]);

@@ -9,7 +9,6 @@ import {
 	join,
 	after,
 	before,
-	beforeEach,
 	describe,
 	it,
 	getArtifactProjectName,
@@ -30,23 +29,11 @@ describe("artifact storage", () => {
 		dir = createTestDir();
 	});
 
-	beforeEach(() => {
-		delete process.env.PI_ARTIFACT_PROJECT_ROOT;
-	});
-
 	after(() => {
 		rmSync(dir, { recursive: true, force: true });
 	});
 
-	it("uses PI_ARTIFACT_PROJECT_ROOT as the artifact storage root when set", () => {
-		const explicitRoot = join(dir, "explicit-root");
-		mkdirSync(explicitRoot, { recursive: true });
-		process.env.PI_ARTIFACT_PROJECT_ROOT = explicitRoot;
-
-		assert.equal(getArtifactStorageRoot(), explicitRoot);
-	});
-
-	it("finds the nearest package root when no git root exists", () => {
+it("finds the nearest package root when no git root exists", () => {
 		const pkgRoot = join(dir, "pkg-root");
 		const nested = join(pkgRoot, "src", "feature");
 		mkdirSync(nested, { recursive: true });
@@ -117,21 +104,6 @@ describe("artifact storage", () => {
 		);
 	});
 
-	it("keeps the repo-derived project name when PI_ARTIFACT_PROJECT_ROOT is set", () => {
-		const projectRoot = join(dir, "real-project");
-		const nested = join(projectRoot, "src");
-		const explicitRoot = join(dir, "custom-history-root");
-		mkdirSync(join(projectRoot, ".git"), { recursive: true });
-		mkdirSync(nested, { recursive: true });
-		mkdirSync(explicitRoot, { recursive: true });
-		process.env.PI_ARTIFACT_PROJECT_ROOT = explicitRoot;
-
-		assert.equal(getArtifactProjectName(nested), "real-project");
-		assert.equal(
-			getProjectArtifactsDir(nested),
-			join(explicitRoot, "real-project", "artifacts"),
-		);
-	});
 });
 
 describe("child context boundary", () => {

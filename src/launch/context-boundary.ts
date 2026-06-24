@@ -3,10 +3,6 @@ export interface ChildContextBoundaryOptions {
 	spawningAllowed: boolean;
 }
 
-export function isChildContextBoundaryDisabled(): boolean {
-	return process.env.PI_SUBAGENT_DISABLE_CHILD_CONTEXT_BOUNDARY === "1";
-}
-
 export const CHILD_CONTEXT_BOUNDARY_SYSTEM_PROMPT =
 	"If this session contains a <subagent-boundary> message, treat it as the handoff point from inherited parent context to your active child-subagent task. Follow that boundary message when interpreting prior context and the next user task.";
 

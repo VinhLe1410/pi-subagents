@@ -36,6 +36,10 @@ function inherited(value?: string | null): string {
 	return value && value.trim() ? value : "default";
 }
 
+function formatExtensions(extensions?: string[]): string {
+	return extensions && extensions.length > 0 ? extensions.join(", ") : "none";
+}
+
 function buildSections(
 	defs: AgentDetailDefaults | null,
 	meta?: PersistedSubagentLaunchMetadata,
@@ -59,7 +63,10 @@ function buildSections(
 	}
 	fields.push({ label: "tools", value: meta?.tools ?? defs?.tools ?? "default" });
 	fields.push({ label: "skills", value: "none" });
-	fields.push({ label: "extensions", value: "none" });
+	fields.push({
+		label: "extensions",
+		value: formatExtensions(meta?.extensions ?? defs?.extensions),
+	});
 	fields.push({ label: "spawning", value: "false" });
 	fields.push({ label: "auto-exit", value: "true" });
 	fields.push({ label: "context", value: "fresh brief" });

@@ -1,4 +1,4 @@
-import { buildChildContextBoundary, isChildContextBoundaryDisabled } from "./context-boundary.ts";
+import { buildChildContextBoundary } from "./context-boundary.ts";
 import type { SubagentLaunchContext, PreparedSubagentLaunch } from "./prep.ts";
 import type { SubagentParamsInput } from "../types.ts";
 import type { SubagentSessionMode } from "../session/session-files.ts";
@@ -22,7 +22,7 @@ function getChildSeedMode(
 function shouldWriteChildContextBoundary(
 	seedMode: Exclude<SubagentSessionMode, "standalone"> | null,
 ): boolean {
-	return seedMode === "fork" && !isChildContextBoundaryDisabled();
+	return seedMode === "fork";
 }
 
 export function seedPreparedSubagentSession(

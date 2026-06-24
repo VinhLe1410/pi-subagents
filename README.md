@@ -27,10 +27,10 @@ Every subagent launch:
 - uses the parent/current project cwd
 - disables project trust and project context files
 - disables skills
-- disables normal extensions, except the internal lifecycle helper
+- disables normal extensions, except the internal lifecycle helper and extensions explicitly whitelisted by the agent
 - prevents child subagent spawning
 
-Agent frontmatter is strict. Legacy fields such as `mode`, `async`, `blocking`, `background`, `cwd`, `fork`, `session-mode`, `skills`, `extensions`, `env`, `flags`, `trust-project`, and `no-session` are rejected; remove them from agent files.
+Agent frontmatter is strict. Legacy fields such as `mode`, `async`, `blocking`, `background`, `cwd`, `fork`, `session-mode`, `skills`, `env`, `flags`, `trust-project`, and `no-session` are rejected; remove them from agent files.
 
 ## Parent tool
 
@@ -88,7 +88,7 @@ The tool schema does not accept launch-time `model` or `thinking`. Model selecti
 Agents live here:
 
 - `.pi/agents/` in the project
-- `~/.pi/agent/agents/` globally, or `$PI_CODING_AGENT_DIR/agents/` when that env var is set
+- `~/.pi/agent/agents/` globally
 
 Project agents override global agents with the same name.
 
@@ -117,6 +117,7 @@ Return a concise final answer with what you did, important findings, files chang
 | `model` | parent model | Child model, optionally with `:thinking` suffix |
 | `thinking` | parent thinking | Child thinking level when `model` does not include one |
 | `tools` | Pi default tools | Built-in Pi tool allowlist, or `all` / `none` |
+| `extensions` | none | Comma-separated Pi `-e` extension whitelist. `~` is expanded; `./` and `../` resolve from the agent file directory |
 | `system-prompt` | `replace` | `replace` uses the agent body as system prompt; `append` appends it to Pi default |
 | `timeout` | unset | Seconds before the child is terminated and returned as a normal failure result |
 
@@ -164,37 +165,6 @@ Failures, cancellations, and timeouts return normal labeled tool results so the 
 ## UI
 
 The parent session gets a widget showing running children. The `/subagents` view is inspect-only: it shows running/completed children and agent definitions, but does not resume or kill children.
-
-## Orchestrator mode
-
-You can turn the parent into a delegation-only orchestrator:
-
-```bash
-PI_ORCHESTRATOR_MODE=1 pi
-```
-
-In this mode the parent keeps only the `subagent` tool and must delegate substantive work to helpers. Children do not inherit orchestrator mode.
-
-## Environment variables
-
-User-facing knobs:
-
-| Variable | Use |
-| --- | --- |
-| `PI_ORCHESTRATOR_MODE` | Set `1` to make the parent delegation-only |
-| `PI_SUBAGENT_PI_COMMAND` | Launch children through a wrapper command |
-| `PI_CODING_AGENT_DIR` | Use a different Pi agent config root |
-| `PI_SUBAGENT_DISABLE_SESSION_TITLES` | Disable automatic child session names |
-| `PI_ARTIFACT_PROJECT_ROOT` | Override internal artifact storage root |
-
-Runtime internals you may see while debugging:
-
-- `PI_DENY_TOOLS`
-- `PI_SUBAGENT_NAME`
-- `PI_SUBAGENT_AGENT`
-- `PI_SUBAGENT_PARENT_SESSION`
-- `PI_SUBAGENT_SESSION`
-- `PI_SUBAGENT_AUTO_EXIT`
 
 ## Testing
 

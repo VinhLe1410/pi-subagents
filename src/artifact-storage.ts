@@ -23,8 +23,7 @@ export function resolveArtifactProjectRoot(cwd: string): string {
 }
 
 export function getArtifactStorageRoot(): string {
-	const envRoot = process.env.PI_ARTIFACT_PROJECT_ROOT?.trim();
-	return envRoot ? resolve(envRoot) : join(homedir(), ".pi", "history");
+	return join(homedir(), ".pi", "history");
 }
 
 export function getArtifactProjectName(cwd: string): string {

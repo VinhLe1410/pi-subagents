@@ -10,6 +10,7 @@ export interface AgentDefaults {
 	path?: string;
 	body?: string;
 	timeout?: number;
+	extensions?: string[];
 }
 
 export interface ResolvedAgentDefinition extends AgentDefaults {
@@ -20,7 +21,7 @@ export interface ResolvedAgentDefinition extends AgentDefaults {
 }
 
 export function getAgentConfigDir(): string {
-	return process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
+	return join(homedir(), ".pi", "agent");
 }
 
 const SUPPORTED_FRONTMATTER_KEYS = new Set([
@@ -31,6 +32,7 @@ const SUPPORTED_FRONTMATTER_KEYS = new Set([
 	"tools",
 	"system-prompt",
 	"timeout",
+	"extensions",
 ]);
 
 function getFrontmatterValue(frontmatter: string, key: string): string | undefined {
@@ -71,6 +73,14 @@ function parseSystemPromptMode(raw: string | undefined, path: string): "append" 
 	throw new Error(`Invalid system-prompt in ${path}: expected "append" or "replace".`);
 }
 
+function parseExtensions(raw: string | undefined): string[] | undefined {
+	const extensions = raw
+		?.split(",")
+		.map((extension) => extension.trim())
+		.filter(Boolean);
+	return extensions && extensions.length > 0 ? extensions : undefined;
+}
+
 function parseAgentDefinition(
 	path: string,
 	source: "project" | "global",
@@ -94,6 +104,7 @@ function parseAgentDefinition(
 		systemPromptMode: parseSystemPromptMode(systemPromptRaw, path),
 		body: body || undefined,
 		timeout: parseTimeout(get("timeout"), path),
+		extensions: parseExtensions(get("extensions")),
 	};
 }
 

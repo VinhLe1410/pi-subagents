@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import {
 	SESSION_HEADER,
 	assert,
@@ -23,6 +24,7 @@ describe("launch coordinator", () => {
 				"model: provider/model",
 				"thinking: high",
 				"tools: read,bash",
+				"extensions: ./extensions/foo.ts, ~/.pi/agent/extensions/random-skill-i-wrote",
 				"---",
 				"You scout the codebase.",
 			].join("\n"),
@@ -59,9 +61,20 @@ describe("launch coordinator", () => {
 		assert.equal(launch.launchMetadata.trustProject, false);
 		assert.equal(launch.launchMetadata.noContextFiles, true);
 		assert.equal(launch.launchMetadata.noSession, false);
+		assert.deepEqual(launch.launchMetadata.extensions, [
+			join(cwd, ".pi", "agents", "extensions", "foo.ts"),
+			join(homedir(), ".pi", "agent", "extensions", "random-skill-i-wrote"),
+		]);
 		assert.equal(launch.envVars.PI_SUBAGENT_SESSION, launch.prepared.subagentSessionFile);
 		assert.equal(launch.envVars.PI_SUBAGENT_AUTO_EXIT, "1");
 		assert.deepEqual(launch.envVars.PI_DENY_TOOLS.split(",").sort(), ["subagent"]);
+		assert.equal(
+			launch.envVars.PI_SUBAGENT_EXTENSIONS,
+			[
+				join(cwd, ".pi", "agents", "extensions", "foo.ts"),
+				join(homedir(), ".pi", "agent", "extensions", "random-skill-i-wrote"),
+			].join(","),
+		);
 
 		const entries = getEntries(launch.prepared.subagentSessionFile) as Array<Record<string, unknown>>;
 		assert.equal(entries[0].type, "session");
@@ -70,6 +83,43 @@ describe("launch coordinator", () => {
 		assert.equal(entries.some((entry) => entry.type === "thinking_level_change"), false);
 		assert.equal(entries.some((entry) => entry.customType === "pi-subagents_launch_metadata"), true);
 		assert.equal(launch.launchEntryCount, entries.length);
+	});
+
+	it("treats an empty extensions row like no user extensions", async () => {
+		const cwd = createTestDir();
+		mkdirSync(join(cwd, ".pi", "agents"), { recursive: true });
+		writeFileSync(
+			join(cwd, ".pi", "agents", "empty-ext.md"),
+			[
+				"---",
+				"name: empty-ext",
+				"extensions:",
+				"---",
+				"Empty extension allowlist.",
+			].join("\n"),
+		);
+		const parentSession = join(cwd, "parent-empty-ext.jsonl");
+		writeFileSync(parentSession, `${JSON.stringify(SESSION_HEADER)}\n`);
+
+		const launch = await coordinateSubagentLaunch(
+			{
+				name: "empty-ext-agent",
+				title: "Empty extensions",
+				task: "Launch empty extension allowlist",
+				agent: "empty-ext",
+			},
+			{
+				cwd,
+				sessionManager: {
+					getSessionFile: () => parentSession,
+					getSessionId: () => "parent-session-id",
+					getLeafId: () => null,
+				},
+			},
+			{ mode: "background" },
+		);
+
+		assert.deepEqual(launch.launchMetadata.extensions, []);
 	});
 
 	it("rejects deprecated agent frontmatter fields", async () => {

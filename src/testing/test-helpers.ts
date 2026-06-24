@@ -12,7 +12,6 @@ import {
 	getSubagentChildProcessEnv,
 	parseCommandWords,
 } from "../launch/child-command.ts";
-import { parseEnvString } from "../launch/env.ts";
 import {
 	buildPersistedSubagentLaunchMetadata,
 	getApprovalLaunchArgs,
@@ -395,10 +394,6 @@ export function getPersistedApprovalLaunchArgsForTest(
 	return getPersistedApprovalLaunchArgs(metadata, mode);
 }
 
-export function parseEnvStringForTest(env: string | undefined) {
-	return parseEnvString(env);
-}
-
 export function getPreparedSessionLaunchArgsForTest(
 	agentDefs: AgentDefaults | null | Pick<PreparedSubagentLaunch, "agentDefs" | "subagentSessionFile" | "sessionTitle">,
 ) {
@@ -426,11 +421,6 @@ export function getBaseSubagentEnvVarsForTest(
 		{ agent: "tester", name: "child", title: "Child task", task: "Task" },
 		() => "lineage-only",
 	);
-}
-
-export function buildShellChangeDirectoryPrefixForTest(cwd: string | undefined) {
-	if (!cwd) return "";
-	return `cd ${JSON.stringify(cwd)} && `;
 }
 
 export function getNoSessionSeedModeForTest(sessionMode: SubagentSessionMode) {

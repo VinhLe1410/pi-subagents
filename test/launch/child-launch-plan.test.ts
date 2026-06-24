@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import {
 	assert,
 	createTestDir,
@@ -6,6 +7,7 @@ import {
 	join,
 } from "../support/index.ts";
 import { buildChildLaunchPlan } from "../../src/launch/child-launch-plan.ts";
+import { getExtensionLaunchArgs } from "../../src/launch/prep.ts";
 
 describe("child launch plan", () => {
 	it("uses agent model/tools and hardcoded simple child capabilities", async () => {
@@ -43,6 +45,57 @@ describe("child launch plan", () => {
 		assert.deepEqual(plan.capability.extensions, []);
 		assert.deepEqual([...plan.capability.denySet].sort(), ["subagent"]);
 		assert.deepEqual(plan.capability.skillLaunchPlan.launchArgs, ["--no-skills"]);
+	});
+
+	it("resolves whitelisted agent extensions for child launch", async () => {
+		const cwd = createTestDir();
+		const parentSessionDir = join(cwd, "parent-sessions");
+		const agentPath = join(cwd, ".pi", "agents", "reviewer.md");
+
+		const plan = await buildChildLaunchPlan({
+			params: {
+				name: "code-review",
+				task: "review the diff",
+				title: "Code review",
+				agent: "reviewer",
+			},
+			agentDefs: {
+				path: agentPath,
+				extensions: [
+					"./extensions/foo.ts",
+					"~/.pi/agent/extensions/random-skill-i-wrote",
+					"git:github.com/user/repo@v1",
+				],
+			},
+			parentCwd: cwd,
+			parentSessionDir,
+		});
+
+		assert.deepEqual(plan.capability.extensions, [
+			join(cwd, ".pi", "agents", "extensions", "foo.ts"),
+			join(homedir(), ".pi", "agent", "extensions", "random-skill-i-wrote"),
+			"git:github.com/user/repo@v1",
+		]);
+	});
+
+	it("keeps extension launch args whitelist-only with the internal helper", () => {
+		assert.deepEqual(getExtensionLaunchArgs([], "subagent-done.ts"), [
+			"--no-extensions",
+			"-e",
+			"subagent-done.ts",
+		]);
+		assert.deepEqual(
+			getExtensionLaunchArgs(["ext-a.ts", "ext-b.ts"], "subagent-done.ts"),
+			[
+				"--no-extensions",
+				"-e",
+				"subagent-done.ts",
+				"-e",
+				"ext-a.ts",
+				"-e",
+				"ext-b.ts",
+			],
+		);
 	});
 
 	it("inherits parent model and thinking when the agent has no defaults", async () => {

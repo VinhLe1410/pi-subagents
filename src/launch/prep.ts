@@ -1,7 +1,6 @@
 import { existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { getArtifactStorageRoot } from "../artifact-storage.ts";
 import type { AgentDefaults } from "../agents/definitions.ts";
 import { loadAgentDefaults as loadAgentDefaultsFromDefinitions } from "../agents/definitions.ts";
 
@@ -340,11 +339,6 @@ export function getBaseSubagentEnvVars(
 	) => SubagentSessionMode,
 ): Record<string, string> {
 	const envVars: Record<string, string> = { PI_PACKAGE_DIR: "" };
-	if (prepared.runtimePaths.localAgentConfigDir) {
-		envVars.PI_CODING_AGENT_DIR = prepared.runtimePaths.localAgentConfigDir;
-	} else if (process.env.PI_CODING_AGENT_DIR) {
-		envVars.PI_CODING_AGENT_DIR = process.env.PI_CODING_AGENT_DIR;
-	}
 	if (prepared.denySet.size > 0)
 		envVars.PI_DENY_TOOLS = [...prepared.denySet].join(",");
 	if (prepared.effectiveExtensions !== undefined) {
@@ -355,6 +349,5 @@ export function getBaseSubagentEnvVars(
 	const sessionMode = resolveEffectiveSessionMode(params, prepared.agentDefs);
 	if (sessionMode !== "standalone")
 		if (prepared.sessionFile) envVars.PI_SUBAGENT_PARENT_SESSION = prepared.sessionFile;
-	envVars.PI_ARTIFACT_PROJECT_ROOT = getArtifactStorageRoot();
 	return envVars;
 }

@@ -1,4 +1,5 @@
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { AgentDefaults } from "../agents/definitions.ts";
 import { getAgentConfigDir } from "../agents/definitions.ts";
 import type { ParentClosePolicy, SubagentParamsInput } from "../types.ts";
@@ -65,10 +66,26 @@ export function resolveSubagentParentClosePolicy(
 	return "terminate";
 }
 
+function isAgentRelativeExtensionSpec(spec: string): boolean {
+	return spec.startsWith("./") || spec.startsWith("../");
+}
+
+function resolveExtensionSpec(spec: string, agentPath: string | undefined): string {
+	if (spec === "~") return homedir();
+	if (spec.startsWith("~/")) return join(homedir(), spec.slice(2));
+	if (isAbsolute(spec)) return spec;
+	if (isAgentRelativeExtensionSpec(spec) && agentPath) {
+		return resolve(dirname(agentPath), spec);
+	}
+	return spec;
+}
+
 export function resolveSubagentExtensions(
-	_agentDefs: AgentDefaults | null,
+	agentDefs: AgentDefaults | null,
 ): string[] {
-	return [];
+	return agentDefs?.extensions?.map((spec) =>
+		resolveExtensionSpec(spec, agentDefs.path),
+	) ?? [];
 }
 
 export function enforceAgentFrontmatter(
