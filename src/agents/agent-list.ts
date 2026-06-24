@@ -31,9 +31,9 @@ export function getAgentListEntries(
 		.map((agent) => ({
 			name: agent.name,
 			source: agent.source,
-			mode: agent.mode,
+			mode: "background" as const,
 			sessionMode: resolveSessionMode(agent),
-			async: agent.async,
+			async: false,
 			autoExit: agent.autoExit,
 			description: agent.description,
 			model: agent.model,
@@ -43,12 +43,12 @@ export function getAgentListEntries(
 		}));
 }
 
-function getToolReturn(entry: AgentListEntry): "wait_here" | "later_message" {
-	return entry.async === false ? "wait_here" : "later_message";
+function getToolReturn(_entry: AgentListEntry): "wait_here" {
+	return "wait_here";
 }
 
-function getRunsAs(entry: AgentListEntry): "visible_terminal" | "hidden_process" {
-	return entry.mode === "background" ? "hidden_process" : "visible_terminal";
+function getRunsAs(_entry: AgentListEntry): "hidden_process" {
+	return "hidden_process";
 }
 
 function getContext(
@@ -98,8 +98,7 @@ export function renderAgentListReminder(
 		"<subagent-rules>",
 		"- Agent names are exact values for subagent.agent or children[].agent.",
 		"- tool_return=wait_here means the subagent tool call waits until the helper finishes.",
-		"- tool_return=later_message means the tool call starts the helper and returns before the work is done; do not invent its findings.",
-		"- runs_as=visible_terminal means a human can watch or type into the helper session. runs_as=hidden_process means no visible terminal is opened.",
+		"- runs_as=hidden_process means no visible terminal is opened.",
 		"- context=fresh_chat_needs_full_brief means write a self-contained task with objective, files, constraints, and expected output.",
 		"- context=copy_of_this_chat means the helper starts from this conversation; give scope, boundary, and expected output without repeating all background.",
 		"- completion=exits_automatically means the helper should finish and close itself. completion=human_or_agent_must_finish means the session stays open until the human or helper explicitly completes it.",

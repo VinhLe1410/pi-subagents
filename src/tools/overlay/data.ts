@@ -71,7 +71,7 @@ function buildSections(
 		fields.push({ label: "override-model", value: inherited(meta.model) });
 		fields.push({ label: "override-thinking", value: inherited(meta.thinking) });
 	}
-	fields.push({ label: "mode", value: meta?.mode ?? defs?.mode ?? "interactive" });
+	fields.push({ label: "mode", value: "background" });
 	fields.push({ label: "cwd", value: meta?.cwd ?? defs?.cwd ?? "parent cwd" });
 	fields.push({ label: "trust-project", value: String(meta ? (meta.trustProject ?? false) : (defs?.trustProject ?? false)) });
 	fields.push({ label: "flags", value: none(meta?.flags ?? defs?.flags) });
@@ -89,7 +89,7 @@ function buildSections(
 		label: "no-context-files",
 		value: String(meta ? meta.noContextFiles : (defs?.noContextFiles ?? false)),
 	});
-	fields.push({ label: "async", value: String(meta ? meta.async : (defs?.async ?? true)) });
+	fields.push({ label: "async", value: "false" });
 	fields.push({ label: "auto-exit", value: String(meta ? (meta.autoExit ?? false) : (defs?.autoExit ?? false)) });
 	fields.push({ label: "session-mode", value: (meta?.sessionMode ?? defs?.sessionMode ?? "lineage-only") as string });
 	fields.push({ label: "parent-close", value: (meta?.parentClosePolicy ?? defs?.parentClosePolicy ?? "terminate") as string });
@@ -140,7 +140,6 @@ function buildRuntimeSection(isRunning: boolean, r: RunningSubagent | CompletedS
 
 	if (running.activity) fields.push({ label: "activity", value: running.activity });
 	if (running.sessionFile) fields.push({ label: "session", value: running.sessionFile });
-	if (running.surface) fields.push({ label: "pane", value: running.surface });
 	if (running.childProcess?.pid) fields.push({ label: "PID", value: `${running.childProcess.pid}` });
 
 	return { title: "Runtime", fields };

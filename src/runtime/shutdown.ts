@@ -1,4 +1,3 @@
-import { closeSurface } from "../mux.ts";
 import type {
 	CompletedSubagentResult,
 	ParentClosePolicy,
@@ -49,14 +48,6 @@ function abortBackgroundSubagent(
 	running.shutdownTimer.unref?.();
 }
 
-function terminateInteractiveSubagent(running: RunningSubagent): void {
-	running.abortController?.abort();
-	if (running.abortController || !running.surface) return;
-	try {
-		closeSurface(running.surface);
-	} catch {}
-}
-
 export function shutdownSubagentsForParentExit(
 	runtime: ShutdownRuntime,
 	options: ShutdownSubagentsOptions = {},
@@ -92,8 +83,7 @@ export function shutdownSubagentsForParentExit(
 			policy: agent.parentClosePolicy,
 			action: "terminate",
 		});
-		if (agent.mode === "interactive") terminateInteractiveSubagent(agent);
-		else abortBackgroundSubagent(agent, escalationMs);
+		abortBackgroundSubagent(agent, escalationMs);
 	}
 
 	runtime.runningSubagents.clear();

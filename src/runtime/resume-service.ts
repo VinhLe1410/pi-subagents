@@ -3,8 +3,7 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getArtifactStorageRoot } from "../artifact-storage.ts";
-import { getPiInvocation, getPiShellParts, getSubagentChildProcessEnv } from "../launch/child-command.ts";
-import { writeResumeTaskArtifact } from "../launch/prompt-artifacts.ts";
+import { getPiInvocation, getSubagentChildProcessEnv } from "../launch/child-command.ts";
 import { expandSubagentTask } from "../launch/task-expansion.ts";
 import { parseEnvString } from "../launch/env.ts";
 import { assertModelAllowed, buildModelRef } from "../agents/model-refs.ts";
@@ -17,16 +16,12 @@ import {
 } from "../launch/prep.ts";
 import {
 	buildResumePiArgs,
-	buildShellChangeDirectoryPrefix,
 	getResumeCwd,
 	resolveResumeLaunchMetadata,
 } from "../launch/resume.ts";
-import { createSurface, exitStatusVar, muxSetupHint, sendShellCommand, shellEscape } from "../mux.ts";
 import { clearSubagentExitSidecar } from "../session/exit-sidecar.ts";
 import { getEntryCount } from "../session/session.ts";
 import {
-	getDoneSentinelFile,
-	isResumeMode,
 	readSubagentExtensionEntry,
 	readSubagentLaunchMetadata,
 	writeSubagentLaunchMetadataEntry,
@@ -36,14 +31,7 @@ import {
 import type { RunningSubagent, SubagentResult } from "../types.ts";
 
 export interface ResumeServiceRuntime {
-	getShellReadyDelayMs(): number;
-	waitForInteractivePrompt(surface: string): Promise<void>;
-	isMuxAvailable(): boolean;
 	watchBackgroundSubagent(
-		running: RunningSubagent,
-		signal: AbortSignal,
-	): Promise<SubagentResult>;
-	watchSubagent(
 		running: RunningSubagent,
 		signal: AbortSignal,
 	): Promise<SubagentResult>;
@@ -68,6 +56,7 @@ export interface ResumeSessionInput {
 	task?: string;
 	name?: string;
 	agent?: string;
+	/** @deprecated compatibility field; ignored. Resumes always run in background. */
 	mode?: "interactive" | "background";
 	model?: string;
 	thinking?: string;
@@ -139,7 +128,7 @@ export function resolveResumeLaunchMetadataForInvocation(
 /**
  * Shared resume logic used by both the LLM subagent_resume tool and the
  * /subagents TUI overlay. Handles validation, deduplication, environment
- * setup, process/pane spawning, and runtime registration.
+ * setup, background process spawning, and runtime registration.
  *
  * Callers must:
  * 1. Call wireSubagentSteerBack(pi, running, running.completionPromise!)
@@ -155,8 +144,7 @@ export async function resumeSubagentSession(
 		throw new Error(`Session file not found: ${sessionFile}`);
 	}
 
-	const explicitMode = isResumeMode(input.mode) ? input.mode : undefined;
-	const metadata = resolveResumeLaunchMetadata(sessionFile, explicitMode);
+	const metadata = resolveResumeLaunchMetadata(sessionFile);
 	const launchMetadata = readSubagentLaunchMetadata(sessionFile);
 	const invocationMetadata = resolveResumeLaunchMetadataForInvocation(
 		launchMetadata,
@@ -166,13 +154,6 @@ export async function resumeSubagentSession(
 	);
 	const shouldPersistInvocationMetadata = invocationMetadata && invocationMetadata !== launchMetadata;
 	const name = invocationMetadata?.name ?? metadata.name ?? input.name ?? "Resume";
-	const displayName = input.name ?? name;
-
-	if (metadata.mode === "interactive" && !runtime.isMuxAvailable()) {
-		throw new Error(
-			`Subagents require a supported terminal multiplexer. ${muxSetupHint()}`,
-		);
-	}
 
 	// Guard: reject duplicate resume of the same session file
 	const normalizedFile = resolve(sessionFile);
@@ -203,7 +184,7 @@ export async function resumeSubagentSession(
 		: ["--no-extensions", "-e", subagentDonePath];
 	const parityArgs = [
 		...getPersistedPromptLaunchArgs(invocationMetadata),
-		...(await getPersistedSessionParityArgs(invocationMetadata, metadata.mode)),
+		...(await getPersistedSessionParityArgs(invocationMetadata, "background")),
 		...(invocationMetadata ? [] : ["--no-approve"]),
 	];
 	const resumeCwd = getResumeCwd(invocationMetadata);
@@ -237,14 +218,11 @@ export async function resumeSubagentSession(
 	} else if (process.env.PI_SUBAGENT_EXTENSIONS) {
 		resumeEnvVars.PI_SUBAGENT_EXTENSIONS = process.env.PI_SUBAGENT_EXTENSIONS;
 	}
-	if (process.env.PI_SUBAGENT_ENABLE_SET_TAB_TITLE === "1") {
-		resumeEnvVars.PI_SUBAGENT_ENABLE_SET_TAB_TITLE = "1";
-	}
 	resumeEnvVars.PI_SUBAGENT_NAME = invocationMetadata?.name ?? name;
 	if (resumedAgent) resumeEnvVars.PI_SUBAGENT_AGENT = resumedAgent;
 	resumeEnvVars.PI_SUBAGENT_SESSION = sessionFile;
 
-	const resumedAsync = invocationMetadata?.async ?? metadata.async ?? true;
+	const resumedAsync = false;
 	const resumedAutoExit =
 		invocationMetadata?.autoExit ?? metadata.autoExit ?? true;
 	if (resumedAutoExit) resumeEnvVars.PI_SUBAGENT_AUTO_EXIT = "1";
@@ -257,7 +235,7 @@ export async function resumeSubagentSession(
 		name,
 		task: task ?? "resumed session",
 		agent: resumedAgent,
-		mode: metadata.mode,
+		mode: "background",
 		executionState: "running",
 		deliveryState: "detached",
 		parentClosePolicy:
@@ -265,7 +243,7 @@ export async function resumeSubagentSession(
 			metadata.parentClosePolicy ??
 			"terminate",
 		async: resumedAsync,
-		blocking: resumedAsync === false,
+		blocking: true,
 		autoExit: resumedAutoExit,
 		startTime: Date.now(),
 		sessionFile,
@@ -274,69 +252,33 @@ export async function resumeSubagentSession(
 		modelRef: invocationMetadata?.modelRef,
 	};
 
-	if (metadata.mode === "background") {
-		const invocation = getPiInvocation([
-			...buildResumePiArgs(sessionFile, "background"),
-			...extensionArgs,
-			...parityArgs,
-		]);
-		const child = spawn(invocation.command, invocation.args, {
-			...(resumeCwd ? { cwd: resumeCwd } : {}),
-			detached: true,
-			stdio:
-				running.parentClosePolicy === "continue"
-					? (["pipe", "ignore", "ignore"] as const)
-					: (["pipe", "pipe", "pipe"] as const),
-			env: getSubagentChildProcessEnv(invocation, resumeEnvVars),
-		});
-		if (expandedTask !== undefined) {
-			child.stdin?.end(expandedTask);
-		} else {
-			child.stdin?.end();
-		}
-		child.unref();
-		running.childProcess = child;
-		child.stdout?.on("data", (chunk: Buffer) => {
-			running.stdoutTail = rememberTail(running.stdoutTail, chunk);
-		});
-		child.stderr?.on("data", (chunk: Buffer) => {
-			running.stderrTail = rememberTail(running.stderrTail, chunk);
-		});
+	const invocation = getPiInvocation([
+		...buildResumePiArgs(sessionFile, "background"),
+		...extensionArgs,
+		...parityArgs,
+	]);
+	const child = spawn(invocation.command, invocation.args, {
+		...(resumeCwd ? { cwd: resumeCwd } : {}),
+		detached: true,
+		stdio:
+			running.parentClosePolicy === "continue"
+				? (["pipe", "ignore", "ignore"] as const)
+				: (["pipe", "pipe", "pipe"] as const),
+		env: getSubagentChildProcessEnv(invocation, resumeEnvVars),
+	});
+	if (expandedTask !== undefined) {
+		child.stdin?.end(expandedTask);
 	} else {
-		const surfaceName = invocationMetadata?.sessionTitle ?? displayName;
-		const surface = createSurface(surfaceName);
-		await new Promise<void>((resolve) =>
-			setTimeout(resolve, runtime.getShellReadyDelayMs()),
-		);
-		await runtime.waitForInteractivePrompt(surface);
-		const doneSentinelFile = getDoneSentinelFile(sessionFile, id);
-		const parts = getPiShellParts(
-			buildResumePiArgs(sessionFile, "interactive"),
-		);
-		for (const arg of [...extensionArgs, ...parityArgs]) {
-			parts.push(shellEscape(arg));
-		}
-		if (expandedTask !== undefined) {
-			const taskPath = writeResumeTaskArtifact(
-				name,
-				expandedTask,
-				sessionFile,
-				resumeCwd ?? process.cwd(),
-			);
-			parts.push(shellEscape(`@${taskPath}`));
-		}
-		resumeEnvVars.PI_SUBAGENT_SURFACE = surface;
-		const resumeEnvPrefix = `${Object.entries(resumeEnvVars)
-			.map(([key, value]) => `${key}=${shellEscape(value)}`)
-			.join(" ")} `;
-		const sentinelPath = shellEscape(doneSentinelFile);
-		const exitVar = exitStatusVar();
-		const exitTrap = shellEscape(`printf "__SUBAGENT_DONE_${exitVar}__\\n" | tee ${sentinelPath}`);
-		const command = `trap ${exitTrap} EXIT; ${buildShellChangeDirectoryPrefix(resumeCwd)}${resumeEnvPrefix}${parts.join(" ")}`;
-		sendShellCommand(surface, command);
-		running.surface = surface;
-		running.doneSentinelFile = doneSentinelFile;
+		child.stdin?.end();
 	}
+	child.unref();
+	running.childProcess = child;
+	child.stdout?.on("data", (chunk: Buffer) => {
+		running.stdoutTail = rememberTail(running.stdoutTail, chunk);
+	});
+	child.stderr?.on("data", (chunk: Buffer) => {
+		running.stderrTail = rememberTail(running.stderrTail, chunk);
+	});
 
 	if (shouldPersistInvocationMetadata) {
 		if (invocationMetadata.modelSource === "resume-override") {
@@ -349,16 +291,10 @@ export async function resumeSubagentSession(
 
 	const watcherAbort = new AbortController();
 	running.abortController = watcherAbort;
-	running.completionPromise =
-		metadata.mode === "background"
-			? runtime.watchBackgroundSubagent(
-					running,
-					runtime.getWatcherSignal(running, watcherAbort),
-				)
-			: runtime.watchSubagent(
-					running,
-					runtime.getWatcherSignal(running, watcherAbort),
-				);
+	running.completionPromise = runtime.watchBackgroundSubagent(
+		running,
+		runtime.getWatcherSignal(running, watcherAbort),
+	);
 
 	return running;
 }

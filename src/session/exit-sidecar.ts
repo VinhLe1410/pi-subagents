@@ -1,4 +1,12 @@
-import { rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
+
+export interface SubagentExitSignal {
+	reason: "done" | "ping" | "error";
+	exitCode: number;
+	outputTokens?: number;
+	ping?: { name: string; message: string };
+	errorMessage?: string;
+}
 
 export function getSubagentExitSidecarPath(sessionFile: string): string {
 	return `${sessionFile}.exit`;
@@ -6,4 +14,51 @@ export function getSubagentExitSidecarPath(sessionFile: string): string {
 
 export function clearSubagentExitSidecar(sessionFile: string): void {
 	rmSync(getSubagentExitSidecarPath(sessionFile), { force: true });
+}
+
+function withDefinedTokens(
+	obj: SubagentExitSignal,
+	tokens: number | undefined,
+): SubagentExitSignal {
+	if (tokens !== undefined) obj.outputTokens = tokens;
+	return obj;
+}
+
+function interpretExitSidecar(data: unknown): SubagentExitSignal {
+	const record = data as Record<string, unknown> | null;
+	const tokens = typeof record?.outputTokens === "number" ? record.outputTokens : undefined;
+	if (record?.type === "ping") {
+		return withDefinedTokens(
+			{
+				reason: "ping",
+				exitCode: 0,
+				ping: {
+					name: typeof record.name === "string" ? record.name : "subagent",
+					message: typeof record.message === "string" ? record.message : "",
+				},
+			},
+			tokens,
+		);
+	}
+	if (record?.type === "error") {
+		const errorMessage =
+			typeof record.errorMessage === "string" && record.errorMessage.trim() !== ""
+				? record.errorMessage
+				: "Subagent exited with stopReason=error (no errorMessage in sidecar).";
+		return withDefinedTokens({ reason: "error", exitCode: 1, errorMessage }, tokens);
+	}
+	return withDefinedTokens({ reason: "done", exitCode: 0 }, tokens);
+}
+
+export function consumeSubagentExitSignal(sessionFile: string): SubagentExitSignal | null {
+	const exitFile = getSubagentExitSidecarPath(sessionFile);
+	if (!existsSync(exitFile)) return null;
+	try {
+		const parsed = JSON.parse(readFileSync(exitFile, "utf8"));
+		if (!parsed || typeof parsed !== "object") return null;
+		clearSubagentExitSidecar(sessionFile);
+		return interpretExitSidecar(parsed);
+	} catch {
+		return null;
+	}
 }

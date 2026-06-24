@@ -19,8 +19,11 @@ export interface SubagentParamsInput {
 	tools?: string;
 	cwd?: string;
 	fork?: boolean;
+	/** @deprecated compatibility field; runtime ignores and launches in background. */
 	background?: boolean;
+	/** @deprecated compatibility field; runtime ignores and waits for completion. */
 	async?: boolean;
+	/** @deprecated compatibility field; runtime ignores and waits for completion. */
 	blocking?: boolean;
 }
 
@@ -55,8 +58,9 @@ export interface CompletedSubagentResult extends SubagentResult {
 	status: SubagentCompletionStatus;
 	deliveryState: DeliveryState;
 	parentClosePolicy: ParentClosePolicy;
-	/** @deprecated compat — stop writing. Readers treat blocking: true as async: false. */
+	/** @deprecated compatibility field; runtime ignores and waits for completion. */
 	blocking?: boolean;
+	/** @deprecated compatibility field; runtime ignores and waits for completion. */
 	async: boolean;
 	autoExit?: boolean;
 	deliveredTo: CompletedDelivery | null;
@@ -72,7 +76,9 @@ export interface RunningSubagent {
 	executionState: "starting" | "running";
 	deliveryState: DeliveryState;
 	parentClosePolicy: ParentClosePolicy;
+	/** @deprecated compatibility field; runtime ignores and waits for completion. */
 	blocking?: boolean;
+	/** @deprecated compatibility field; runtime ignores and waits for completion. */
 	async?: boolean;
 	autoExit?: boolean;
 	noSession?: boolean;
@@ -173,7 +179,9 @@ export interface SubagentPingMessageDetails {
 	mode?: "interactive" | "background";
 	deliveryState?: DeliveryState;
 	parentClosePolicy?: ParentClosePolicy;
+	/** @deprecated compatibility field; runtime ignores and waits for completion. */
 	blocking?: boolean;
+	/** @deprecated compatibility field; runtime ignores and waits for completion. */
 	async?: boolean;
 	elapsed?: number;
 	sessionFile?: string;

@@ -2,53 +2,25 @@
 
 `pi-subagents` is a highly curated multi-agent framework for [Pi agent harness](https://github.com/earendil-works/pi).
 
-It began as a fork of [HazAT/pi-interactive-subagents](https://github.com/HazAT/pi-interactive-subagents), then grew into a monumental refactor: named agents, interactive panes, background workers, async parallelism, blocking agents, child-to-parent communication, forked context, a beautiful TUI widget, orchestrator mode, and much more!
+Forked from [edxeth/pi-subagents](https://github.com/edxeth/pi-subagents)
 
-Use it when one agent should hand work to another agent instead of trying to do everything in one transcript. Interactive children open in Herdr, cmux, tmux, zellij, or WezTerm; background children run headlessly.
-
-https://github.com/user-attachments/assets/e0b97493-6c9b-4710-ba26-a6c08230ba28
-
-## 🌐 **Join the Community**
-
-> [!NOTE]
-> **Building with AI doesn’t have to be a solo grind.**  
-> Join our Discord community to meet other people exploring the latest models, tools, workflows, and ideas: **https://discord.gg/whhrDtCrSS**
->
-> We talk about what’s new, what’s useful, and what’s actually worth paying attention to in AI.  
-> *And if you want more than conversation,* members also get access to **heavily discounted AI products and services** — including deals on tools like **ChatGPT Plus** and more for just a few dollars.
+Use it when one agent should hand work to another agent instead of trying to do everything in one transcript. Children run headlessly in the background and the parent waits for their final result.
 
 ## Install
 
 ```bash
-pi install git:github.com/edxeth/pi-subagents
+git clone https://github.com/VinhLe1410/pi-subagents
 ```
 
 ## The model
 
 A subagent is a named agent file plus a launch policy.
 
-The agent file says who the child is and how it should run. The parent still owns the decision to launch it. The child owns the task it receives.
+The agent file says who the child is. The parent still owns the decision to launch it. The child owns the task it receives.
 
-Two axes matter:
+Subagents run as background `pi -p` child processes. The parent waits for completion and receives the child's final assistant message as the tool result.
 
-- `interactive` or `background`: where the child runs
-- async or sync: whether the parent waits
-
-`interactive` means foreground. Pi opens a visible surface through Herdr, cmux, tmux, zellij, or WezTerm. Normal launches use a backend-specific surface, such as a tab, window, split, or stacked pane.
-
-`background` means headless. Pi starts a `pi -p` child process without opening a pane.
-
-Async means the parent gets a “started” result and the child answer comes back later. Sync means the parent waits for the child answer before it continues.
-
-### Interactive mux backends
-
-Interactive children open in your current terminal backend. `pi-subagents` supports Herdr, cmux, tmux, zellij, and WezTerm.
-
-Start `pi` inside the backend you want to use. Leave `PI_SUBAGENT_MUX` unset to let Pi detect it, or set it to `herdr`, `cmux`, `tmux`, `zellij`, or `wezterm` to force one.
-
-The backend command must exist, and Pi must be able to see the current pane or session context. If no supported backend is active, interactive launches fail with a setup hint.
-
-Normal launches use a backend-specific surface. Herdr creates a new tab in the parent workspace and labels it with the child session title prefixed by the tab's positional index (matching `ctrl+b 1..9`), such as `2: [reviewer] Auth implementation review`. Other backends may use windows, splits, or stacked panes.
+Legacy `mode`, `async`, `blocking`, and `background` launch/config fields are accepted for compatibility but do not change runtime behavior.
 
 ### Orchestrator mode
 
@@ -126,7 +98,6 @@ A minimal agent:
 ---
 name: scout
 description: Inspect the codebase and report the relevant files.
-mode: background
 auto-exit: true
 tools: read,grep,find,ls
 ---
@@ -140,34 +111,32 @@ For a fuller example of the intended style, see the [scout agent gist by edxeth]
 
 ### Frontmatter reference
 
-| Field | Default | What it controls |
-| --- | --- | --- |
-| `name` | filename | Stable agent name used by `agent: "..."` |
-| `description` | unset | One-line routing hint for ambient awareness |
-| `enabled` | `true` | Set `false` to hide and block the agent |
-| `model` | Pi default | Child default model, including optional thinking suffix. When unset, the child inherits the parent's model. |
-| `thinking` | model default | Child thinking level. When unset, the child inherits the parent's thinking level. |
-| `allow-model-override` | `true` | Whether the parent Pi session may launch or resume this agent with a different model or thinking level. Leave it alone if you want to choose models per task from the parent chat. Set `false` when this agent should always use the model written in its file. |
-| `allowed-models` | unset | Extra exact model refs the parent may choose when `allow-model-override` is enabled. The agent `model` is implicitly allowed and does not need to be repeated. `provider/model` allows any thinking level for that model; `provider/model:thinking` allows only that thinking level. |
-| `cwd` | parent cwd | Working directory for the child |
-| `extensions` | `all` | Which extension code loads in the child: `all`, `none`, or a comma-separated allowlist |
-| `tools` | `all` | Child tool availability: `all`, `none`, or a comma-separated allowlist of Pi tool names. Lists may include built-in, extension/custom, and protocol tools. `none` disables built-in tools while preserving extension/custom tools unless denied. |
-| `deny-tools` | unset | Final comma-separated tool names to remove from the child after built-in tools, extensions, and protocol tools are selected |
-| `skills` | `all` | Child skill availability: `all`, `none`, or a comma-separated allowlist resolved by skill name |
-| `inject-skills` | unset | Comma-separated skills to load into the child prompt before the task |
-| `no-context-files` | `false` | Skip trusted project context-file discovery in the child. With the default `trust-project: false`, Pi already ignores project-local context files. |
-| `no-session` | `false` | Use an ephemeral child session file and delete it after completion |
-| `trust-project` | `false` | Whether interactive child launches pass Pi's `--approve` flag and trust project-local files/settings. Background children always generate `--no-approve` for safety; use `flags` only as an explicit advanced override. |
-| `auto-exit` | `false` | Close the child after a normal completion |
-| `system-prompt` | task body | `append` uses `--append-system-prompt`; `replace` uses `--system-prompt` |
-| `session-mode` | `lineage-only` | `standalone`, `lineage-only`, or `fork` |
-| `flags` | unset | Extra CLI flags passed to the child pi process (e.g. `--verbose` or `--some-custom-flag`). Appended after all generated args — last-wins semantics against conflicting generated args, including `--approve` / `--no-approve`. Use only as an advanced escape hatch for extension-registered flags or pi built-in flags not covered by other frontmatter fields. |
-| `env` | unset | Line-based `KEY=VALUE` pairs passed as environment variables to the child process. Use YAML block syntax for values with commas or `=`. `PI_CODING_AGENT_DIR` is special: when set here, it is resolved before launch and becomes the child's Pi config/session root. `~/` is expanded. Internal PI vars such as PI\_SUBAGENT\_\* still take precedence if names conflict. |
-| `task-expansion` | unset | Set `shell` when the task may include shell placeholders that Pi resolves before launch. Pi runs each placeholder from the child's target `cwd`, gives it 30 seconds, replaces it with captured output, and gives that prepared task to the child. The command receives `PI_WORKSPACE`; long output is cut with `[output truncated]`. Leave unset unless you trust the task text to execute shell commands. |
-| `spawning` | `false` | Allow the child to launch subagents |
-| `async` | `true` | `false` makes the launch sync |
-| `mode` | `interactive` | `interactive` pane or `background` process |
-| `parent-close-policy` | `terminate` | What happens to the child when the parent session exits: `terminate` (kill) or `continue` (leave running) |
+| Field                  | Default        | What it controls                                                                                                                                                                                                                                                                                                                                                                                            |
+| ---------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`                 | filename       | Stable agent name used by `agent: "..."`                                                                                                                                                                                                                                                                                                                                                                    |
+| `description`          | unset          | One-line routing hint for ambient awareness                                                                                                                                                                                                                                                                                                                                                                 |
+| `enabled`              | `true`         | Set `false` to hide and block the agent                                                                                                                                                                                                                                                                                                                                                                     |
+| `model`                | Pi default     | Child default model, including optional thinking suffix. When unset, the child inherits the parent's model.                                                                                                                                                                                                                                                                                                 |
+| `thinking`             | model default  | Child thinking level. When unset, the child inherits the parent's thinking level.                                                                                                                                                                                                                                                                                                                           |
+| `allow-model-override` | `true`         | Whether the parent Pi session may launch or resume this agent with a different model or thinking level. Leave it alone if you want to choose models per task from the parent chat. Set `false` when this agent should always use the model written in its file.                                                                                                                                             |
+| `allowed-models`       | unset          | Extra exact model refs the parent may choose when `allow-model-override` is enabled. The agent `model` is implicitly allowed and does not need to be repeated. `provider/model` allows any thinking level for that model; `provider/model:thinking` allows only that thinking level.                                                                                                                        |
+| `cwd`                  | parent cwd     | Working directory for the child                                                                                                                                                                                                                                                                                                                                                                             |
+| `extensions`           | `all`          | Which extension code loads in the child: `all`, `none`, or a comma-separated allowlist                                                                                                                                                                                                                                                                                                                      |
+| `tools`                | `all`          | Child tool availability: `all`, `none`, or a comma-separated allowlist of Pi tool names. Lists may include built-in, extension/custom, and protocol tools. `none` disables built-in tools while preserving extension/custom tools unless denied.                                                                                                                                                            |
+| `deny-tools`           | unset          | Final comma-separated tool names to remove from the child after built-in tools, extensions, and protocol tools are selected                                                                                                                                                                                                                                                                                 |
+| `skills`               | `all`          | Child skill availability: `all`, `none`, or a comma-separated allowlist resolved by skill name                                                                                                                                                                                                                                                                                                              |
+| `inject-skills`        | unset          | Comma-separated skills to load into the child prompt before the task                                                                                                                                                                                                                                                                                                                                        |
+| `no-context-files`     | `false`        | Skip trusted project context-file discovery in the child. With the default `trust-project: false`, Pi already ignores project-local context files.                                                                                                                                                                                                                                                          |
+| `no-session`           | `false`        | Use an ephemeral child session file and delete it after completion                                                                                                                                                                                                                                                                                                                                          |
+| `trust-project`        | `false`        | Whether child launches pass Pi's `--approve` flag and trust project-local files/settings. The default generates `--no-approve` for safety; use `flags` only as an explicit advanced override.                                                                                                                                                                                                               |
+| `auto-exit`            | `false`        | Close the child after a normal completion                                                                                                                                                                                                                                                                                                                                                                   |
+| `system-prompt`        | task body      | `append` uses `--append-system-prompt`; `replace` uses `--system-prompt`                                                                                                                                                                                                                                                                                                                                    |
+| `session-mode`         | `lineage-only` | `standalone`, `lineage-only`, or `fork`                                                                                                                                                                                                                                                                                                                                                                     |
+| `flags`                | unset          | Extra CLI flags passed to the child pi process (e.g. `--verbose` or `--some-custom-flag`). Appended after all generated args — last-wins semantics against conflicting generated args, including `--approve` / `--no-approve`. Use only as an advanced escape hatch for extension-registered flags or pi built-in flags not covered by other frontmatter fields.                                            |
+| `env`                  | unset          | Line-based `KEY=VALUE` pairs passed as environment variables to the child process. Use YAML block syntax for values with commas or `=`. `PI_CODING_AGENT_DIR` is special: when set here, it is resolved before launch and becomes the child's Pi config/session root. `~/` is expanded. Internal PI vars such as PI_SUBAGENT\_\* still take precedence if names conflict.                                   |
+| `task-expansion`       | unset          | Set `shell` when the task may include shell placeholders that Pi resolves before launch. Pi runs each placeholder from the child's target `cwd`, gives it 30 seconds, replaces it with captured output, and gives that prepared task to the child. The command receives `PI_WORKSPACE`; long output is cut with `[output truncated]`. Leave unset unless you trust the task text to execute shell commands. |
+| `spawning`             | `false`        | Allow the child to launch subagents                                                                                                                                                                                                                                                                                                                                                                         |
+| `parent-close-policy`  | `terminate`    | What happens to the child when the parent session exits: `terminate` (kill) or `continue` (leave running)                                                                                                                                                                                                                                                                                                   |
 
 Use YAML block syntax for more than one env var:
 
@@ -180,7 +149,7 @@ env: |
 
 Pi splits `env` by line. It does not split values by comma. When you set `PI_CODING_AGENT_DIR`, the child uses that directory for its Pi config and sessions.
 
-`trust-project` controls Pi's project-local trust boundary. The default `false` passes `--no-approve`, so child sessions ignore project-local settings and project-local context files such as `AGENTS.md`/`CLAUDE.md` even when the parent project was previously approved. Set `trust-project: true` only for interactive children that should inherit those project-local resources. Background children still generate `--no-approve`; `flags` is the explicit advanced escape hatch if you need to override that safety default.
+`trust-project` controls Pi's project-local trust boundary. The default `false` passes `--no-approve`, so child sessions ignore project-local settings and project-local context files such as `AGENTS.md`/`CLAUDE.md` even when the parent project was previously approved. Set `trust-project: true` only for children that should inherit those project-local resources. `flags` is the explicit advanced escape hatch if you need to override that safety default.
 
 `task-expansion: shell` prepares task context before launch for small models that should not have to plan tool calls. It is opt-in because the parent task text becomes shell input and runs in the parent Pi process before the child starts. Commands execute in source order from the child's effective `cwd`; each placeholder gets 30 seconds before Pi inserts a timeout diagnostic. Use `$PI_WORKSPACE` or `${PI_WORKSPACE}` inside the shell command to read the workspace path from the environment. This explicit opt-in works in every parent mode, including orchestrator mode. Use explicit shell placeholders:
 
@@ -190,6 +159,7 @@ Summarize the files changed.
 Inline status: !`git status --short`
 
 Changed files:
+
 ```!
 git diff --name-only
 ```
@@ -200,7 +170,7 @@ Follow these conventions:
 
 Pi expands those placeholders into command output before writing the child task artifact. Ordinary Markdown code fences are treated as literal examples, so inline placeholders inside language-tagged code fences such as `sh` or `text` do not execute. Plain standalone lines like `!git status` are not expanded; use inline ``!`git status` `` or a fenced shell command block. Because project-local agent files can opt into this behavior, only use `task-expansion: shell` in agents whose launch tasks you trust to become shell input.
 
-Named-agent frontmatter wins over duplicate launch-time fields such as `tools`, `cwd`, and `mode`. `model` and `thinking` are different: while you are in a parent Pi session, you can ask Pi to run a subagent with a specific model or thinking level for that one launch or resume. That works by default. If an agent file sets `allow-model-override: false`, Pi ignores those per-launch model choices and uses the model from the agent file, or the inherited Pi model if the file does not name one. Use that opt-out for agents whose quality, cost, or safety depends on a specific model.
+Named-agent frontmatter wins over duplicate launch-time fields such as `tools` and `cwd`. `model` and `thinking` are different: while you are in a parent Pi session, you can ask Pi to run a subagent with a specific model or thinking level for that one launch or resume. That works by default. If an agent file sets `allow-model-override: false`, Pi ignores those per-launch model choices and uses the model from the agent file, or the inherited Pi model if the file does not name one. Use that opt-out for agents whose quality, cost, or safety depends on a specific model.
 
 Use `allowed-models` when an agent should have a small exact model menu:
 
@@ -234,42 +204,14 @@ Agents without descriptions remain launchable, but they do not appear in ambient
 
 ## Launching and waiting
 
-Async launch:
+Launch flow:
 
 1. parent calls `subagent`
-2. child starts
-3. parent receives a “started” result
-4. child result comes back later by steer
+2. child starts as a background `pi -p` process
+3. parent waits for the child to finish
+4. tool result contains the child's final assistant message
 
-Sync launch:
-
-1. the agent has `async: false` in frontmatter
-2. parent waits
-3. tool result contains the child result
-
-#### Mixed sync and async batches
-
-When one tool-call batch contains at least one sync/blocking subagent, the whole batch becomes a barrier. Pi still launches every child with its own frontmatter, so an `async: true` child keeps async launch metadata for resume, but the parent waits until every child in that batch completes and receives all results as tool results.
-
-```
-subagent(sync), subagent(async), subagent(async) → all launch
-→ parent waits until all three finish
-→ returns all three completed results
-```
-
-Pure async batches stay detached: the parent receives started results and child results arrive later by steer.
-
-After a pure async launch, the parent should get out of the way unless it has separate work. If the parent keeps solving the delegated task, you paid for two agents to race each other.
-
-By default, a successful async launch ends the parent turn after the current tool batch. The children keep running. Their results come back later.
-
-Leave `PI_SUBAGENT_DISABLE_COORDINATOR_ONLY_TURN` unset, or set it to `0`, to keep that guard. Set it to `1` when you want the parent model to keep going after async launches.
-
-```bash
-PI_SUBAGENT_DISABLE_COORDINATOR_ONLY_TURN=1 pi
-```
-
-That only removes the runtime stop. The parent still owns only work it did not delegate.
+A tool-call batch with multiple subagents launches the children and returns their completed results after they finish. Legacy sync/async configuration is ignored; the runtime always waits for completion.
 
 ## Session modes
 
@@ -318,7 +260,6 @@ For `fork`, Pi seeds that temporary file with the parent session content. For `l
 
 Use `no-session: true` for disposable children. Do not use it when you need resume, `caller_ping`, or durable child history.
 
-
 ## Child lifecycle
 
 A child can finish in three ways.
@@ -331,7 +272,7 @@ Use `auto-exit: true` for autonomous agents. The child exits after a normal assi
 
 Manual-lifecycle children get a `subagent_done` tool. The child writes its final assistant message, calls `subagent_done`, and Pi returns that final message to the parent.
 
-Pi hides `subagent_done` for `auto-exit: true` agents. If you want an interactive child that only the operator can close, add `subagent_done` to `deny-tools`.
+Pi hides `subagent_done` for `auto-exit: true` agents.
 
 ### `caller_ping`
 
@@ -341,7 +282,7 @@ Use `caller_ping` when the child needs the parent. The child sends a message up,
 
 `subagent_resume` starts an existing child session again. You can pass a follow-up task.
 
-Resume tries to preserve the original launch shape: mode, model, prompt style, cwd, tools, extensions, and lifecycle settings. A resumed child should continue as the same child, even if the agent file changed after the first launch.
+Resume tries to preserve the original launch shape: model, prompt style, cwd, tools, extensions, and lifecycle settings. A resumed child should continue as the same child, even if the agent file changed after the first launch.
 
 ## Child output
 
@@ -503,7 +444,7 @@ inject-skills: deep-research
 ---
 ```
 
-The `tools` field narrows the child to a Pi tool allowlist. Use built-in names such as `read` and `bash`, extension/custom names such as `mcp`, and protocol names such as `caller_ping` when they should be part of the final allowlist. Pi-subagents keeps required child protocol tools available in narrowed allowlists. The optional `set_tab_title` protocol tool is added only when `PI_SUBAGENT_ENABLE_SET_TAB_TITLE=1`. When `tools` is omitted or set to `all`, Pi keeps its default active tool set. When `tools` is `none`, Pi disables built-in tools while preserving extension/custom tools unless you deny them.
+The `tools` field narrows the child to a Pi tool allowlist. Use built-in names such as `read` and `bash`, extension/custom names such as `mcp`, and protocol names such as `caller_ping` when they should be part of the final allowlist. Pi-subagents keeps required child protocol tools available in narrowed allowlists. When `tools` is omitted or set to `all`, Pi keeps its default active tool set. When `tools` is `none`, Pi disables built-in tools while preserving extension/custom tools unless you deny them.
 
 Pi silently ignores `--tools` names that are not registered by a built-in or a loaded extension. That means a typo (for example `tools: read,edti`) leaves the child silently without `edit`. pi-subagents surfaces a non-blocking warning in the subagent result when a name is within one edit of a built-in (`edti`→`edit`, `raed`→`read`); the launch still proceeds, because a near-miss name can be a legitimate custom tool (for example `hash` is one edit from `bash`). pi-subagents cannot validate arbitrary extension/custom tool names before the child loads its extensions, so ensure every custom/extension name in `tools:` is registered by an extension listed in `extensions:`.
 
@@ -531,10 +472,10 @@ parent-close-policy: continue
 ---
 ```
 
-| Value | Effect |
-| --- | --- |
-| `terminate` | Stop the child when the parent session exits |
-| `continue` | Leave the child running and stop delivering its result to the closed parent |
+| Value       | Effect                                                                      |
+| ----------- | --------------------------------------------------------------------------- |
+| `terminate` | Stop the child when the parent session exits                                |
+| `continue`  | Leave the child running and stop delivering its result to the closed parent |
 
 The default is `terminate`.
 
@@ -573,20 +514,14 @@ PI_SUBAGENT_PI_COMMAND="'/path with spaces/my-wrapper' pi" pi
 
 User-facing knobs:
 
-| Variable | Use |
-| --- | --- |
-| `PI_ORCHESTRATOR_MODE` | Set `1` to turn the parent into an orchestrator (delegation-only tools, replacement system prompt) |
-| `PI_SUBAGENT_PI_COMMAND` | Launch children through a wrapper command |
-| `PI_SUBAGENT_MUX` | Force `herdr`, `cmux`, `tmux`, `zellij`, or `wezterm` |
-| `PI_CODING_AGENT_DIR` | Use a different Pi agent config root |
-| `PI_SUBAGENT_DISABLE_COORDINATOR_ONLY_TURN` | Set `1` to let the parent keep running after async launches |
-| `PI_SUBAGENT_DISABLE_CHILD_CONTEXT_BOUNDARY` | Set `1` for raw forks with no boundary marker |
-| `PI_SUBAGENT_DISABLE_SESSION_TITLES` | Disable automatic child session names |
-| `PI_ARTIFACT_PROJECT_ROOT` | Override internal artifact storage root |
-| `PI_SUBAGENT_SHELL_READY_DELAY_MS` | Change the pane startup delay before Pi sends the child command |
-| `PI_SUBAGENT_ENABLE_SET_TAB_TITLE` | Register the optional `set_tab_title` tool |
-| `PI_SUBAGENT_RENAME_TMUX_WINDOW` | Let `set_tab_title` rename the tmux window |
-| `PI_SUBAGENT_RENAME_TMUX_SESSION` | Let `set_tab_title` rename the tmux session |
+| Variable                                     | Use                                                                                                |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `PI_ORCHESTRATOR_MODE`                       | Set `1` to turn the parent into an orchestrator (delegation-only tools, replacement system prompt) |
+| `PI_SUBAGENT_PI_COMMAND`                     | Launch children through a wrapper command                                                          |
+| `PI_CODING_AGENT_DIR`                        | Use a different Pi agent config root                                                               |
+| `PI_SUBAGENT_DISABLE_CHILD_CONTEXT_BOUNDARY` | Set `1` for raw forks with no boundary marker                                                      |
+| `PI_SUBAGENT_DISABLE_SESSION_TITLES`         | Disable automatic child session names                                                              |
+| `PI_ARTIFACT_PROJECT_ROOT`                   | Override internal artifact storage root                                                            |
 
 Runtime internals you may see while debugging:
 
@@ -596,79 +531,21 @@ Runtime internals you may see while debugging:
 - `PI_SUBAGENT_AGENT`
 - `PI_SUBAGENT_PARENT_SESSION`
 - `PI_SUBAGENT_SESSION`
-- `PI_SUBAGENT_SURFACE`
 - `PI_SUBAGENT_AUTO_EXIT`
 
 Live test knobs:
 
-- `PI_SUBAGENT_ALLOW_LIVE_WINDOWS`
 - `PI_SUBAGENT_LIVE_MODEL`
 - `PI_SUBAGENT_KEEP_E2E_TMP`
-- `PI_SUBAGENT_LIVE_LOCK_PATH`
 
 ## Testing
-
-Unit tests:
 
 ```bash
 bunx tsc --noEmit
 npm test
 ```
 
-Herdr-focused fake tests:
-
-```bash
-node --test test/mux/herdr.test.ts
-node --test test/launch/herdr-interactive-launch.test.ts
-```
-
-The mux test covers Herdr detection, forced preferences, adapter error reporting, non-shrinking numbered-tab creation in the parent workspace, split limitations, command send, screen reads, title and workspace labels, and cleanup. The launch test covers Herdr parity for cwd, env, flags, trust-project approval, session settings, model and thinking resolution, tool narrowing, skills, lifecycle policy, and explicit `PI_SUBAGENT_MUX=herdr` selection.
-
-Live tests:
-
-```bash
-PI_SUBAGENT_ALLOW_LIVE_WINDOWS=1 npm run test:e2e-live-blocking
-PI_SUBAGENT_ALLOW_LIVE_WINDOWS=1 npm run test:e2e-live-mix-blocking
-npm run test:e2e-live-deny-tools
-npm run test:e2e-live-tools
-npm run test:e2e-live-extensions
-npm run test:e2e-live-stop-after-turn
-```
-
-The live window tests require an explicit opt-in because they open real terminal windows.
-
-Herdr live smoke tests are guarded and bounded:
-
-```bash
-npm run test:live-herdr-mux
-npm run test:live-herdr-pi
-```
-
-Without opt-in variables, each Herdr smoke prints a `SKIP` line and exits before creating Herdr surfaces. Use the skip output as guard evidence only. It is not a real live smoke run.
-
-Run the real Herdr mux smoke only when you are ready to create temporary Herdr surfaces:
-
-```bash
-PI_SUBAGENT_ALLOW_LIVE_WINDOWS=1 npm run test:live-herdr-mux
-```
-
-Run the real Pi Herdr smoke with both live opt-ins and a model. This script starts an interactive parent Pi session inside a Herdr-managed pane. It does not use `pi -p` as proof of interactive child behavior.
-
-```bash
-PI_SUBAGENT_ALLOW_LIVE_WINDOWS=1 \
-PI_SUBAGENT_LIVE_MODEL=provider/model[:thinking] \
-npm run test:live-herdr-pi
-```
-
-Both Herdr smoke scripts check the `herdr` command, server running status, and protocol compatibility before mutating panes. They label created tabs and panes with a unique marker, then close marked surfaces during cleanup.
-
-Herdr validation record for this release:
-
-- `node --test test/mux/herdr.test.ts` passes the fake Herdr mux contract suite.
-- `node --test test/launch/herdr-interactive-launch.test.ts` passes the fake Herdr launch parity suite.
-- `bunx tsc --noEmit` passes type checking.
-- `npm test` runs the registered Herdr mux and launch suites through the repository test entrypoint.
-- `npm run test:live-herdr-mux` and `npm run test:live-herdr-pi` pass their skip guards when `PI_SUBAGENT_ALLOW_LIVE_WINDOWS` and `PI_SUBAGENT_LIVE_MODEL` are unset. A real live run requires the opt-in variables above.
+For runtime behavior changes, also run focused live `pi -p` repros with a temporary session directory and inspect the parent/child JSONL sessions.
 
 ## Credits
 

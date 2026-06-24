@@ -21,34 +21,7 @@ function getSubagentCompletionStatus(
 	if (result.errorMessage) return "failed";
 	if (getSubagentTerminalStopReason(result.summary)) return "failed";
 	if (result.exitCode === 0) return "completed";
-	// Manual interactive children (auto-exit: false) complete when the operator
-	// closes the pane. A forced mux/pane close can leave the shell EXIT-trap with a
-	// non-zero status; if the child already produced a real final assistant message
-	// and the watcher did not hit an error path, that close is a successful operator
-	// close rather than a crash.
-	if (
-		running?.mode === "interactive" &&
-		running.autoExit === false &&
-		!result.error &&
-		hasRealSubagentOutput(result.summary)
-	) {
-		return "completed";
-	}
 	return "failed";
-}
-
-/**
- * True when the summary is a real child result rather than a watcher fallback
- * for a child that exited without answering. Used to tell an operator pane-close
- * of a manual interactive child apart from a crash before it produced output.
- */
-function hasRealSubagentOutput(summary: string | undefined): boolean {
-	const text = (summary ?? "").trim();
-	if (!text) return false;
-	return (
-		!text.startsWith("Sub-agent exited with code ") &&
-		text !== "Sub-agent exited without output"
-	);
 }
 
 export function buildCompletedSubagentResult(
@@ -132,24 +105,17 @@ export function isSubagentBatchBlocking(): boolean {
 	return currentSubagentBatchHasBlocking;
 }
 
-function isCoordinatorOnlyTurnDisabled(): boolean {
-	return process.env.PI_SUBAGENT_DISABLE_COORDINATOR_ONLY_TURN === "1";
-}
-
 export function requestSubagentBatchStop(): void {
-	if (isCoordinatorOnlyTurnDisabled()) return;
-	stopAfterCurrentSubagentBatch = true;
+	// Normal subagent launches are awaited-only; keep this as a compatibility
+	// no-op for older callers while removing coordinator-only terminate flow.
 }
 
 export function getCoordinatorOnlyTurnPrompt(): string {
-	if (isCoordinatorOnlyTurnDisabled()) {
-		return "You may continue with non-overlapping work after launching a tool_return=later_message helper. Do not redo delegated work or claim results before the later report appears.";
-	}
-	return "For helpers with tool_return=later_message, the runtime may stop after this tool batch so the helper's later report can be inserted into this chat. Do not redo delegated work or claim results before the later report appears.";
+	return "Subagent launches are awaited: use the tool result directly and do not expect a later-message report.";
 }
 
 export function getSubagentBatchStopMetadata(): { terminate?: true } {
-	return stopAfterCurrentSubagentBatch && !currentSubagentBatchHasBlocking ? { terminate: true } : {};
+	return {};
 }
 
 export function withSubagentBatchStop<T extends AgentToolResult<unknown>>(

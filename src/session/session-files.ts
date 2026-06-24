@@ -31,12 +31,14 @@ export interface PersistedSubagentLaunchMetadata {
 	title?: string;
 	sessionTitle?: string;
 	agent?: string;
+	/** @deprecated compatibility field; runtime coerces resumes to background. */
 	mode: ResumeMode;
 	sessionMode: SubagentSessionMode;
 	autoExit?: boolean;
 	parentClosePolicy: ParentClosePolicy;
-	/** @deprecated compat — stop writing. Readers treat `blocking: true` as `async: false`. */
+	/** @deprecated compatibility field; runtime ignores and waits for completion. */
 	blocking?: boolean;
+	/** @deprecated compatibility field; runtime ignores and waits for completion. */
 	async: boolean;
 	model?: string;
 	thinking?: string;

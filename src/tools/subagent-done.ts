@@ -15,10 +15,6 @@ import {
 	CALLER_PING_TOOL_NAME,
 	SUBAGENT_DONE_TOOL_NAME,
 } from "./tool-names.ts";
-import {
-	registerSetTabTitleTool,
-	shouldRegisterSetTabTitleTool,
-} from "./set-tab-title.ts";
 
 const require = createRequire(import.meta.url);
 
@@ -249,8 +245,7 @@ export default function (pi: ExtensionAPI) {
 		outputTokens += message.usage.output ?? 0;
 	});
 
-	// Every subagent child reports Pi shutdown through the session sidecar. This is
-	// the primary lifecycle signal; mux/shell sentinels are only pane-death fallback.
+	// Every subagent child reports Pi shutdown through the session sidecar.
 	pi.on("session_shutdown", () => {
 		writeExitSignal({ type: "done", outputTokens });
 	});
@@ -315,9 +310,7 @@ export default function (pi: ExtensionAPI) {
 		});
 	}
 
-	// caller_ping is registered for most agents as an escape hatch.
-	// Only interactive agents with autoExit: false don't get it —
-	// the operator is in the pane and can handle things directly.
+	// caller_ping is registered as an escape hatch.
 	if (!isInteractive || autoExit) {
 		pi.registerTool({
 			name: CALLER_PING_TOOL_NAME,
@@ -370,13 +363,5 @@ export default function (pi: ExtensionAPI) {
 				};
 			},
 		});
-	}
-
-	// set_tab_title is a child-side protocol tool (see SUBAGENT_PROTOCOL_TOOL_NAMES).
-	// The mandatory child extension registers it under the same opt-in as the
-	// parent so the declared contract holds even when `extensions: none` strips
-	// the main pi-subagents extension from the child.
-	if (shouldRegisterSetTabTitleTool(new Set(denied))) {
-		registerSetTabTitleTool(pi);
 	}
 }

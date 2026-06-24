@@ -5,20 +5,15 @@ import type { AgentDefaults } from "../agents/definitions.ts";
 import {
 	enforceAgentFrontmatter,
 	getSubagentAgentRequirementError,
-
-	resolveSubagentBlocking,
 } from "../launch/policy.ts";
 import type { SubagentLaunchContext } from "../launch/prep.ts";
-import { isMuxAvailable } from "../mux.ts";
 import { findRunningSubagent } from "../runtime/running-registry.ts";
 import type { RunningSubagent, SubagentParamsInput, SubagentResult } from "../types.ts";
-import { asSubagentToolResult, getCoordinatorOnlyTurnPrompt, getSubagentBatchStopMetadata, markSubagentBatchBlocking } from "../runtime/state.ts";
+import { asSubagentToolResult } from "../runtime/state.ts";
 
 import { formatSubagentBatchLines, formatTaskPreview, renderSubagentCompletionText } from "./message-renderers.ts";
 import { getSubagentToolsWarning } from "./policy.ts";
-import { registerSetTabTitleTool } from "./set-tab-title.ts";
 import {
-	SET_TAB_TITLE_TOOL_NAME,
 	SUBAGENT_KILL_TOOL_NAME,
 	SUBAGENT_TOOL_NAME,
 } from "./tool-names.ts";
@@ -68,15 +63,12 @@ export interface SubagentToolRuntime {
 	resolveEffectiveSessionMode(params: Partial<SubagentParamsInput>, defs: AgentDefaults | null): string;
 	resolveTaskSessionMode(defs: AgentDefaults): string;
 	launchBackgroundSubagent(params: SubagentParamsInput, ctx: SubagentLaunchContext): Promise<RunningSubagent>;
-	launchSubagent(params: SubagentParamsInput, ctx: SubagentLaunchContext): Promise<RunningSubagent>;
 	watchBackgroundSubagent(running: RunningSubagent, signal: AbortSignal, timeout?: number): Promise<SubagentResult>;
-	watchSubagent(running: RunningSubagent, signal: AbortSignal): Promise<SubagentResult>;
 	getWatcherSignal(running: RunningSubagent, controller: AbortController): AbortSignal;
 	wireSubagentSteerBack(pi: ExtensionAPI, running: RunningSubagent, promise: Promise<SubagentResult>): void;
 	startWidgetRefresh(): void;
 	getLaunchedSubagentResult(running: RunningSubagent, signal?: AbortSignal): Promise<ToolResult>;
 	stopRunningSubagent(running: RunningSubagent): void;
-	muxUnavailableResult(action: string): unknown;
 }
 
 type SubagentToolParams = Partial<SubagentParamsInput> & { children?: SubagentParamsInput[] };
@@ -109,8 +101,8 @@ export function withToolWarning(result: ToolResult, warningPrefix: string): Tool
 		.filter((block): block is { type: "text"; text: string } => block.type === "text")
 		.map((block) => block.text)
 		.join("\n\n");
-	// Spread the original result so batch/turn-control fields like `terminate`
-	// survive; only the text content is prepended with the warning.
+	// Spread the original result so structured details survive; only the text
+	// content is prepended with the warning.
 	return asSubagentToolResult({
 		...result,
 		content: [{ type: "text", text: `${warningPrefix}\n\n${existingText}` }],
@@ -140,13 +132,12 @@ async function launchOneSubagent(
 	const forceSynchronousLaunch = shouldForceSynchronousLaunch(ctx.hasUI);
 	const headlessAutoExit = forceSynchronousLaunch && agentDefs?.autoExit !== true ? true : undefined;
 	const effectiveParams = enforceAgentFrontmatter(params, agentDefs);
-	// In print/prompt-style runs there is no durable parent turn for async steer
-	// delivery. Force blocking so the child completes before the parent exits.
-	if (forceSynchronousLaunch) {
-		effectiveParams.async = false;
-		effectiveParams.blocking = true;
-	}
-	const isBackground = effectiveParams.background ?? agentDefs?.mode === "background";
+	// Phase 2 runtime policy: obsolete async/blocking/background/mode config is
+	// ignored for normal launches. Every child runs hidden and the tool waits for
+	// completion before returning.
+	effectiveParams.async = false;
+	effectiveParams.blocking = true;
+	effectiveParams.background = true;
 
 	const parentModelRef = ctx.model
 		? `${ctx.model.provider}/${ctx.model.id}`
@@ -163,23 +154,10 @@ async function launchOneSubagent(
 		parentModelRef,
 		parentThinking,
 	};
-	let running: RunningSubagent;
-	if (isBackground) {
-		running = await runtime.launchBackgroundSubagent(effectiveParams, launchCtx);
-		const watcherAbort = new AbortController();
-		running.abortController = watcherAbort;
-		running.completionPromise = runtime.watchBackgroundSubagent(running, runtime.getWatcherSignal(running, watcherAbort), agentDefs?.timeout);
-	} else if (ctx.hasUI && isMuxAvailable()) {
-		running = await runtime.launchSubagent(effectiveParams, launchCtx);
-		const watcherAbort = new AbortController();
-		running.abortController = watcherAbort;
-		running.completionPromise = runtime.watchSubagent(running, runtime.getWatcherSignal(running, watcherAbort));
-	} else {
-		running = await runtime.launchBackgroundSubagent(effectiveParams, launchCtx);
-		const watcherAbort = new AbortController();
-		running.abortController = watcherAbort;
-		running.completionPromise = runtime.watchBackgroundSubagent(running, runtime.getWatcherSignal(running, watcherAbort), agentDefs?.timeout);
-	}
+	const running = await runtime.launchBackgroundSubagent(effectiveParams, launchCtx);
+	const watcherAbort = new AbortController();
+	running.abortController = watcherAbort;
+	running.completionPromise = runtime.watchBackgroundSubagent(running, runtime.getWatcherSignal(running, watcherAbort), agentDefs?.timeout);
 	return running;
 }
 
@@ -247,13 +225,6 @@ export function shouldForceSynchronousLaunch(
 	return !hasUI || isOneShotPromptInvocation(argv) || startupPromptActive;
 }
 
-function getToolWaitSignal(
-	running: RunningSubagent,
-	signal: AbortSignal | undefined,
-): AbortSignal | undefined {
-	return running.async === false ? undefined : signal;
-}
-
 export function registerSubagentCoreTools(
 	pi: ExtensionAPI,
 	shouldRegister: (name: string) => boolean,
@@ -263,12 +234,12 @@ export function registerSubagentCoreTools(
 		name: SUBAGENT_TOOL_NAME,
 		label: "Subagent",
 		description:
-			"Launch one or more named helper agents from the subagent roster. " +
-			"Agent definitions own model, tools, context, UI mode, wait behavior, and completion lifecycle; " +
-			"this call chooses the agent name(s), task(s), and titles. " +
+			"Launch one or more named helper agents from the subagent roster and wait for completion. " +
+			"Agent definitions own model, tools, and context; obsolete UI/wait fields are ignored. " +
+			"This call chooses the agent name(s), task(s), and titles. " +
 			"Model/thinking are routing controls, not quality knobs; set them only when the user named concrete values.",
 		promptSnippet:
-			"Subagents are separate helper processes you can launch to do work outside this chat turn.\n" +
+			"Subagents are separate helper processes you can launch to do work; this tool waits for their completion and returns the results as tool output.\n" +
 			"\n" +
 			"Use this tool when a listed agent is a clear fit for specialist, complex, or parallel work. Do small direct work yourself: quick answers, simple file reads, and tiny one-shot edits.\n" +
 			"\n" +
@@ -288,51 +259,40 @@ export function registerSubagentCoreTools(
 			"- For parallel helpers, make each task non-overlapping.\n" +
 			"\n" +
 			"After launch:\n" +
-			"- If a helper returns later, continue only with clearly independent work. Do not redo delegated work and do not claim the helper's findings before its later message appears.\n" +
-			"- If no safe independent work is clear, stop your response and wait for the later helper message.\n" +
+			"- Wait for the tool result and use the returned findings; do not redo delegated work while the helper is running.\n" +
 			"- Ask the user only when there is a plausible next step but ownership is ambiguous.\n" +
-			"Results arrive automatically as a steer message that starts a new turn. " +
-			"Do not poll, sleep-read, or check session files — the harness handles delivery.\n" +
-			getCoordinatorOnlyTurnPrompt(),
+			"Results are returned directly by this tool. Do not poll, sleep-read, or check session files — the harness handles delivery.\n",
 		parameters: SubagentParams,
-		execute: async (toolCallId, params, signal, _onUpdate, ctx) => {
+		execute: async (toolCallId, params, _signal, _onUpdate, ctx) => {
 			const children = getRequestedChildren(params as SubagentToolParams);
 			const currentAgent = process.env.PI_SUBAGENT_AGENT;
 			const prepared = children.map((child) => {
 				const agentDefs = runtime.loadAgentDefaults(child.agent, ctx.cwd);
 				const error = getLaunchError(child, agentDefs, currentAgent);
 				if (error) throw new Error(error);
-				return { child, agentDefs, blocking: resolveSubagentBlocking(child, agentDefs), warning: getSubagentToolsWarning(agentDefs?.tools) };
+				return { child, agentDefs, warning: getSubagentToolsWarning(agentDefs?.tools) };
 			});
-			const hasBlockingChild = prepared.some((entry) => entry.blocking);
-			if (prepared.length > 1 && hasBlockingChild) {
-				markSubagentBatchBlocking();
-			}
 
 			const launched: RunningSubagent[] = [];
 			for (const entry of prepared) {
 				const running = await launchOneSubagent(toolCallId, entry.child, entry.agentDefs, ctx, runtime, pi);
 				launched.push(running);
-				runtime.wireSubagentSteerBack(pi, running, running.completionPromise!);
 			}
 			runtime.startWidgetRefresh();
 			const warnings = prepared.map((entry) => entry.warning?.message ?? "");
 			const warningPrefix = warnings.filter(Boolean).join("\n\n");
 			if (launched.length === 1) {
-				const result = await runtime.getLaunchedSubagentResult(
-					launched[0],
-					getToolWaitSignal(launched[0], signal),
-				);
+				const result = await runtime.getLaunchedSubagentResult(launched[0]);
 				return withToolWarning(result, warningPrefix);
 			}
 
-			const results = await Promise.all(launched.map((running) => runtime.getLaunchedSubagentResult(running, getToolWaitSignal(running, signal))));
+			const results = await Promise.all(launched.map((running) => runtime.getLaunchedSubagentResult(running)));
 			const texts = results.flatMap((result) => result.content).filter((block) => block.type === "text").map((block) => block.text);
 			const joined = texts.join("\n\n");
 			return asSubagentToolResult({
 				content: [{ type: "text", text: warningPrefix ? `${warningPrefix}\n\n${joined}` : joined }],
 				details: {
-					status: hasBlockingChild ? "batch" : "started",
+					status: "batch",
 					children: results.map((result, index) => ({
 						...(result.details as Record<string, unknown>),
 						task: prepared[index]?.child.task,
@@ -341,7 +301,6 @@ export function registerSubagentCoreTools(
 						name: (result.details as { name?: string } | undefined)?.name ?? prepared[index]?.child.name,
 					})),
 				},
-				...getSubagentBatchStopMetadata(),
 			});
 		},
 		renderCall(args, theme, context) {
@@ -380,8 +339,8 @@ export function registerSubagentCoreTools(
 
 	pi.registerTool({
 		name: SUBAGENT_KILL_TOOL_NAME, label: "Kill Subagent",
-		description: "Stop a running subagent by id or display name. Works for both background and interactive subagents.",
-		promptSnippet: "Stop a running subagent by id or display name. Works for both background and interactive subagents.",
+		description: "Stop a running background subagent by id or display name.",
+		promptSnippet: "Stop a running background subagent by id or display name.",
 		parameters: SubagentKillParams,
 		execute: async (_toolCallId, params) => {
 			const match = findRunningSubagent(params.id);
@@ -391,5 +350,4 @@ export function registerSubagentCoreTools(
 		},
 	});
 
-	if (shouldRegister(SET_TAB_TITLE_TOOL_NAME)) registerSetTabTitleTool(pi);
 }

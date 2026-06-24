@@ -14,9 +14,6 @@ import {
 } from "./agents/definitions.ts";
 import { getNoSessionSeedMode } from "./launch/seed-child-session.ts";
 import {
-	getSubagentAgentOverrideError,
-	getSubagentAgentRequirementError,
-	resolveSubagentBlocking,
 	resolveSubagentNoSession,
 } from "./launch/policy.ts";
 import { resolveSubagentCwd } from "./launch/runtime-paths.ts";
@@ -27,27 +24,21 @@ import {
 	resolveTaskSessionMode as resolveTaskSessionModeFromSessionFiles,
 	type SubagentSessionMode,
 } from "./session/session-files.ts";
-import { isMuxAvailable, muxSetupHint } from "./mux.ts";
 import type { SubagentParamsInput } from "./types.ts";
 import {
 	formatElapsed,
 	getLaunchedSubagentResult,
-	getShellReadyDelayMs,
-	waitForInteractivePrompt,
 	getWatcherSignal,
 	launchBackgroundSubagent,
-	launchSubagent,
 	moduleAbortController,
 	runningSubagents,
 	shutdownSubagentsForParentExit,
 	startWidgetRefresh,
 	stopRunningSubagent,
 	watchBackgroundSubagent,
-	watchSubagent,
 	widgetManager,
 	wireSubagentSteerBack,
 } from "./runtime/wiring.ts";
-export { getShellReadyDelayMs } from "./runtime/wiring.ts";
 export {
 	getCompletedSubagentResultForTest,
 	getLaunchedSubagentResultForTest,
@@ -63,12 +54,9 @@ export {
 	waitForSubagentForTest,
 } from "./runtime/wiring.ts";
 import {
-	markSubagentBatchBlocking,
-	requestSubagentBatchStop,
 	resetSubagentBatchStopRequest,
 	stopAfterCurrentSubagentBatch,
 } from "./runtime/state.ts";
-import { classifyAssistantMessageForMixedBatch } from "./runtime/batch-classifier.ts";
 import { ORCHESTRATOR_ALLOWED_TOOL_NAMES, SUBAGENT_TOOL_NAME } from "./tools/tool-names.ts";
 import { registerSubagentCommands } from "./tools/commands.ts";
 import { registerSubagentMessageRenderers } from "./tools/message-renderers.ts";
@@ -127,16 +115,6 @@ let pendingAmbientRoster: {
 	entries: AgentListEntry[];
 	supersedes?: true;
 } | null = null;
-
-function muxUnavailableResult(kind: "subagents" | "tab-title" = "subagents") {
-	const text = kind === "tab-title"
-		? `Terminal multiplexer not available. ${muxSetupHint()}`
-		: `Subagents require a supported terminal multiplexer. ${muxSetupHint()}`;
-	return {
-		content: [{ type: "text" as const, text }],
-		details: { error: "mux not available" },
-	};
-}
 
 export default function subagentsExtension(pi: ExtensionAPI) {
 	function attachWidgetContext(ctx: ExtensionContext) {
@@ -210,7 +188,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 - **subagent_resume** — Continue a previous sub-agent session with follow-up instructions. The sub-agent retains its full context from the previous run.
 - **subagent_kill** — Stop a running sub-agent.
 
-Sub-agent results arrive as tool output when the agent was launched with blocking mode, or as later messages in the conversation when launched in non-blocking mode. Never fabricate or predict results that have not arrived.
+Sub-agent results arrive as tool output from the launch call. Never fabricate or predict results that have not arrived.
 
 ## How to delegate
 
@@ -303,44 +281,6 @@ Your most important job is synthesis: reading sub-agent outputs, understanding t
 		return { action: "continue" as const };
 	});
 
-	pi.on("message_end", (event) => {
-		// Mixed-batch barrier: when an assistant message contains BOTH an async
-		// subagent launch (subagent or subagent_resume) AND a non-subagent tool,
-		// mark the batch blocking before any tool runs. The shared
-		// shouldAwaitSubagentLaunch predicate then routes both subagent and
-		// subagent_resume launches through the await path so the parent's
-		// next turn sees completed results instead of racing the children.
-		// Gated by PI_SUBAGENT_DISABLE_COORDINATOR_ONLY_TURN to share a kill
-		// switch with the existing coordinator-only-turn behavior.
-		const message = event?.message;
-		if (!message) return;
-		classifyAssistantMessageForMixedBatch(message, (agent, cwd) =>
-			agent ? loadAgentDefaults(agent, cwd) : null,
-		);
-	});
-
-	pi.on("tool_call", (event) => {
-		if (event.toolName !== SUBAGENT_TOOL_NAME) return {};
-		const input = event.input as Partial<SubagentParamsInput>;
-		const agentDefs =
-			typeof input.agent === "string"
-				? loadAgentDefaults(
-						input.agent,
-						typeof input.cwd === "string" ? input.cwd : undefined,
-					)
-				: null;
-		const agentError = getSubagentAgentRequirementError(input, agentDefs);
-		const agentOverrideError = getSubagentAgentOverrideError(input, agentDefs);
-		if (!agentError && !agentOverrideError) {
-			if (resolveSubagentBlocking(input, agentDefs)) {
-				markSubagentBatchBlocking();
-			} else {
-				requestSubagentBatchStop();
-			}
-		}
-		return {};
-	});
-
 	pi.on("turn_start", () => {
 		resetSubagentBatchStopRequest();
 	});
@@ -385,23 +325,16 @@ Your most important job is synthesis: reading sub-agent outputs, understanding t
 		resolveEffectiveSessionMode,
 		resolveTaskSessionMode,
 		launchBackgroundSubagent,
-		launchSubagent,
 		watchBackgroundSubagent,
-		watchSubagent,
 		getWatcherSignal,
 		wireSubagentSteerBack,
 		startWidgetRefresh,
 		getLaunchedSubagentResult,
 		stopRunningSubagent,
-		muxUnavailableResult: () => muxUnavailableResult("tab-title"),
 	});
 
 	registerSubagentResumeTool(pi, shouldRegister, {
-		getShellReadyDelayMs,
-		waitForInteractivePrompt,
-		isMuxAvailable,
 		watchBackgroundSubagent,
-		watchSubagent,
 		getWatcherSignal,
 		wireSubagentSteerBack,
 		startWidgetRefresh,
@@ -420,11 +353,7 @@ Your most important job is synthesis: reading sub-agent outputs, understanding t
 	registerSubagentMessageRenderers(pi, formatElapsed);
 
 	registerSubagentsView(pi, {
-		getShellReadyDelayMs,
-		waitForInteractivePrompt,
-		isMuxAvailable,
 		watchBackgroundSubagent,
-		watchSubagent,
 		getWatcherSignal,
 		startWidgetRefresh,
 		getContextWindow: (modelRef) => widgetManager.resolveModelContextWindow(modelRef),

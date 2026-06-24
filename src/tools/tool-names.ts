@@ -9,7 +9,6 @@
 export const SUBAGENT_TOOL_NAME = "subagent";
 export const SUBAGENT_RESUME_TOOL_NAME = "subagent_resume";
 export const SUBAGENT_KILL_TOOL_NAME = "subagent_kill";
-export const SET_TAB_TITLE_TOOL_NAME = "set_tab_title";
 
 // Child-side protocol tools provided by the bundled subagent extension:
 export const CALLER_PING_TOOL_NAME = "caller_ping";
@@ -36,26 +35,20 @@ export const SPAWNING_TOOL_NAMES: ReadonlySet<string> = new Set([
 /**
  * Child-side protocol tools owned by pi-subagents. `caller_ping` and
  * `subagent_done` are kept available in narrowed child `tools:` allowlists
- * unless explicitly denied. `set_tab_title` is optional and is added only when
- * PI_SUBAGENT_ENABLE_SET_TAB_TITLE=1 and not denied.
+ * unless explicitly denied.
  */
 export const SUBAGENT_PROTOCOL_TOOL_NAMES: readonly string[] = [
 	CALLER_PING_TOOL_NAME,
 	SUBAGENT_DONE_TOOL_NAME,
-	SET_TAB_TITLE_TOOL_NAME,
 ];
 
 /**
- * pi-subagents-internal tools that should NOT count as a "non-subagent
- * sibling" in the mixed-batch classifier. These are control/cosmetic tools
- * that don't do side-effecting work; pairing them with an async subagent
- * launch does not create the race the barrier prevents.
+ * pi-subagents-internal tools.
  */
 export const PI_SUBAGENTS_INTERNAL_TOOL_NAMES: ReadonlySet<string> = new Set([
 	SUBAGENT_TOOL_NAME,
 	SUBAGENT_RESUME_TOOL_NAME,
 	SUBAGENT_KILL_TOOL_NAME,
-	SET_TAB_TITLE_TOOL_NAME,
 ]);
 
 /**
@@ -66,5 +59,4 @@ export const ORCHESTRATOR_ALLOWED_TOOL_NAMES: ReadonlySet<string> = new Set([
 	SUBAGENT_TOOL_NAME,
 	SUBAGENT_KILL_TOOL_NAME,
 	SUBAGENT_RESUME_TOOL_NAME,
-	SET_TAB_TITLE_TOOL_NAME,
 ]);

@@ -47,18 +47,9 @@ export function getSubagentAgentOverrideError(
 
 export function resolveSubagentBlocking(
 	_params: Partial<SubagentParamsInput>,
-	agentDefs: AgentDefaults | null,
+	_agentDefs: AgentDefaults | null,
 ): boolean {
-	if (agentDefs?.async != null) return agentDefs.async === false;
-	if (agentDefs?.blocking != null) return agentDefs.blocking === true;
-	return false;
-}
-
-function resolveSubagentAsync(
-	params: Partial<SubagentParamsInput>,
-	agentDefs: AgentDefaults | null,
-): boolean {
-	return !resolveSubagentBlocking(params, agentDefs);
+	return true;
 }
 
 export function resolveSubagentNoContextFiles(
@@ -134,7 +125,7 @@ export function enforceAgentFrontmatter(
 		...(agentDefs?.allowModelOverride !== false && params.thinking
 			? { thinking: params.thinking }
 			: {}),
-		async: resolveSubagentAsync(params, agentDefs),
-		blocking: resolveSubagentBlocking(params, agentDefs),
+		async: false,
+		blocking: true,
 	};
 }

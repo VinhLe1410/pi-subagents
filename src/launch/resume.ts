@@ -3,14 +3,13 @@ import { resolve } from "node:path";
 import type { ParentClosePolicy } from "../types.ts";
 import { getEntries } from "../session/session.ts";
 import {
-	isResumeMode,
 	readSubagentLaunchMetadata,
 	type PersistedSubagentLaunchMetadata,
 } from "../session/session-files.ts";
-import { shellEscape } from "../mux.ts";
+import { shellEscape } from "./child-command.ts";
 
 export type ResumeMode = "interactive" | "background";
-type ResumeModeSource = "explicit" | "metadata" | "fallback";
+type ResumeModeSource = "metadata" | "fallback";
 
 export interface ResumeLaunchMetadata {
 	mode: ResumeMode;
@@ -61,12 +60,9 @@ function findLaunchMetadataInValue(
 		if (seen.has(current)) continue;
 		seen.add(current);
 		const record = current as Record<string, unknown>;
-		if (
-			sameSessionFile(record.sessionFile, sessionFile) &&
-			isResumeMode(record.mode)
-		) {
+		if (sameSessionFile(record.sessionFile, sessionFile)) {
 			return {
-				mode: record.mode,
+				mode: "background",
 				agent: typeof record.agent === "string" ? record.agent : undefined,
 				name: typeof record.name === "string" ? record.name : undefined,
 				autoExit:
@@ -76,9 +72,8 @@ function findLaunchMetadataInValue(
 					record.parentClosePolicy === "continue"
 						? record.parentClosePolicy
 						: undefined,
-				blocking:
-					typeof record.blocking === "boolean" ? record.blocking : undefined,
-				async: typeof record.async === "boolean" ? record.async : undefined,
+				blocking: true,
+				async: false,
 			};
 		}
 		for (const child of Object.values(record)) {
@@ -103,19 +98,19 @@ function getParentSessionFileFromChildSession(
 
 export function resolveResumeLaunchMetadata(
 	sessionFile: string,
-	explicitMode?: ResumeMode,
+	_explicitMode?: ResumeMode,
 ): ResumeLaunchMetadata {
 	const launchMetadata = readSubagentLaunchMetadata(sessionFile);
 	if (launchMetadata) {
 		return {
-			mode: launchMetadata.mode,
+			mode: "background",
 			modeSource: "metadata",
 			agent: launchMetadata.agent,
 			name: launchMetadata.name,
 			autoExit: launchMetadata.autoExit,
 			parentClosePolicy: launchMetadata.parentClosePolicy,
-			blocking: launchMetadata.blocking,
-			async: launchMetadata.async,
+			blocking: true,
+			async: false,
 		};
 	}
 	try {
@@ -136,18 +131,14 @@ export function resolveResumeLaunchMetadata(
 		} catch {}
 	}
 
-	// Persisted launch metadata is authoritative. The explicit mode argument is
-	// only a fallback when no metadata can be inferred, matching the
-	// subagent_resume tool description.
-	if (explicitMode) return { mode: explicitMode, modeSource: "explicit" };
-	return { mode: "interactive", modeSource: "fallback" };
+	// Persisted/call-time mode is obsolete compatibility data. Resume always
+	// launches as a background process and waits for completion.
+	return { mode: "background", modeSource: "fallback" };
 }
 
 export function buildResumePiArgs(
 	sessionFile: string,
-	mode: ResumeMode = "background",
+	_mode: ResumeMode = "background",
 ): string[] {
-	return mode === "background"
-		? ["-p", "--session", sessionFile]
-		: ["--session", sessionFile];
+	return ["-p", "--session", sessionFile];
 }

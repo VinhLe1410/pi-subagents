@@ -1,6 +1,5 @@
 import { existsSync } from "node:fs";
 import { basename } from "node:path";
-import { shellEscape } from "../mux.ts";
 
 export interface PiInvocation {
 	command: string;
@@ -78,6 +77,10 @@ export function getPiInvocation(args: string[]): PiInvocation {
 		return { command: process.execPath, args };
 	}
 	return { command: "pi", args };
+}
+
+export function shellEscape(s: string): string {
+	return `'${s.replace(/'/g, "'\\''")}'`;
 }
 
 export function getPiShellParts(args: string[]): string[] {

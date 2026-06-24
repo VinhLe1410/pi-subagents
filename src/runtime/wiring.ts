@@ -3,40 +3,21 @@ import { launchBackgroundSubagent as launchBackgroundSubagentWithRuntime, type B
 import { cleanupNoSessionSessionFile } from "../launch/prep.ts";
 import { watchBackgroundSubagent as watchBackgroundSubagentWithRuntime, type BackgroundWatchRuntime } from "./background-watch.ts";
 import { getPiInvocation, getPiShellParts, getSubagentChildProcessEnv } from "../launch/child-command.ts";
-import { closeSurface, readScreenAsync } from "../mux.ts";
-import { launchInteractiveSubagent, type InteractiveLaunchRuntime } from "../launch/interactive.ts";
-import { watchSubagent as watchSubagentWithRuntime, type InteractiveWatchRuntime } from "./interactive-watch.ts";
 import { shutdownSubagentsForParentExit as shutdownSubagentsForParentExitWithRuntime, terminateBackgroundChildProcess, type ShutdownRuntime, type ShutdownSubagentsOptions } from "./shutdown.ts";
 import type { CompletedSubagentResult, RunningSubagent, SubagentParamsInput, SubagentResult, WaitParams } from "../types.ts";
 import type { SubagentLaunchContext } from "../launch/prep.ts";
 import { getStartedSubagentDetails, getLaunchedSubagentResult as getLaunchedSubagentResultWithRuntime, routeDetachedSubagentCompletion as routeDetachedSubagentCompletionWithDeps, stopRunningSubagent as stopRunningSubagentWithDeps, wireSubagentSteerBack as wireSubagentSteerBackWithDeps, deliverCompletedSubagentResultViaSteer as deliverCompletedSubagentResultViaSteerWithDeps, findTrackedSubagent } from "./running-registry.ts";
 import { waitForSubagentResult as waitForSubagentResultWithRuntime, type WaitRuntime } from "./wait.ts";
-import { asSubagentToolResult, cacheCompletedSubagentResult, completedSubagentResults, moduleAbortController, resetRuntimeStateForTest, runningSubagents, widgetManager, withSubagentBatchStop } from "./state.ts";
+import { asSubagentToolResult, cacheCompletedSubagentResult, completedSubagentResults, moduleAbortController, resetRuntimeStateForTest, runningSubagents, widgetManager } from "./state.ts";
 
 export { getWatcherSignal, moduleAbortController, runningSubagents, widgetManager } from "./state.ts";
+
+const noopCloseSurface = (_surface: string) => {};
 
 export function formatElapsed(seconds: number): string {
 	const s = Math.round(seconds);
 	const m = Math.floor(s / 60);
 	return m > 0 ? `${m}m ${s % 60}s` : `${s}s`;
-}
-
-export function getShellReadyDelayMs(): number {
-	const raw = process.env.PI_SUBAGENT_SHELL_READY_DELAY_MS;
-	const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
-	return Number.isFinite(parsed) && parsed >= 0 ? parsed : 500;
-}
-
-export async function waitForInteractivePrompt(surface: string): Promise<void> {
-	const start = Date.now();
-	const timeoutMs = 15000;
-	let previous = "";
-	while (Date.now() - start < timeoutMs) {
-		await new Promise((resolve) => setTimeout(resolve, 300));
-		const screen = await readScreenAsync(surface).catch(() => "");
-		if (screen && screen === previous) return;
-		previous = screen;
-	}
 }
 
 function updateWidget() {
@@ -79,7 +60,7 @@ export function renderSubagentWidgetForTest() {
 }
 
 export function stopRunningSubagent(running: RunningSubagent): void {
-	stopRunningSubagentWithDeps(running, closeSurface);
+	stopRunningSubagentWithDeps(running, noopCloseSurface);
 	updateWidget();
 }
 
@@ -89,7 +70,7 @@ export async function getLaunchedSubagentResult(
 ) {
 	return getLaunchedSubagentResultWithRuntime(
 		running,
-		{ formatElapsed, updateWidget, waitForSubagentResult, withSubagentBatchStop, asSubagentToolResult },
+		{ formatElapsed, updateWidget, waitForSubagentResult, asSubagentToolResult },
 		signal,
 	);
 }
@@ -144,8 +125,8 @@ function getWaitRuntime(): WaitRuntime {
 		cacheCompletedSubagentResult,
 		updateWidget,
 		deliverCompletedSubagentResultViaSteer,
-		stopRunningSubagent: (running) => stopRunningSubagentWithDeps(running, closeSurface),
-		closeSurface,
+		stopRunningSubagent: (running) => stopRunningSubagentWithDeps(running, noopCloseSurface),
+		closeSurface: noopCloseSurface,
 	};
 }
 
@@ -180,28 +161,6 @@ export async function watchBackgroundSubagent(
 	timeoutMs?: number,
 ) {
 	return watchBackgroundSubagentWithRuntime(running, getBackgroundWatchRuntime(), signal ?? moduleAbortController.signal, timeoutMs);
-}
-
-function getInteractiveLaunchRuntime(): InteractiveLaunchRuntime {
-	return { getContextWindow: (modelRef) => widgetManager.resolveModelContextWindow(modelRef), getShellReadyDelayMs, waitForInteractivePrompt };
-}
-
-export async function launchSubagent(
-	params: SubagentParamsInput,
-	ctx: SubagentLaunchContext,
-	options?: { surface?: string },
-): Promise<RunningSubagent> {
-	const running = await launchInteractiveSubagent(params, ctx, getInteractiveLaunchRuntime(), options);
-	runningSubagents.set(running.id, running);
-	return running;
-}
-
-function getInteractiveWatchRuntime(): InteractiveWatchRuntime {
-	return { cleanupNoSessionSessionFile };
-}
-
-export async function watchSubagent(running: RunningSubagent, signal?: AbortSignal) {
-	return watchSubagentWithRuntime(running, getInteractiveWatchRuntime(), signal ?? moduleAbortController.signal);
 }
 
 function getShutdownRuntime(): ShutdownRuntime {

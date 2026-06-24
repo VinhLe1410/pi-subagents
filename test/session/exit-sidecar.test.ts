@@ -6,7 +6,7 @@ import {
 	clearSubagentExitSidecar,
 	getSubagentExitSidecarPath,
 } from "../../src/session/exit-sidecar.ts";
-import { consumeSubagentExitSignal } from "../../src/mux/poll.ts";
+import { consumeSubagentExitSignal } from "../../src/session/exit-sidecar.ts";
 
 describe("subagent exit sidecars", () => {
 	it("stores exit sidecars next to the child session and consumes them once", () => {

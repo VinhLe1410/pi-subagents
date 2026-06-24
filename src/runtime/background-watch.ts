@@ -1,5 +1,5 @@
 import { existsSync, statSync } from "node:fs";
-import { consumeSubagentExitSignal } from "../mux.ts";
+import { consumeSubagentExitSignal } from "../session/exit-sidecar.ts";
 import type { RunningSubagent, SessionEntryLike, SubagentResult } from "../types.ts";
 import { findLastSubagentOutput, getEntries, getEntryCount, getNewEntries } from "../session/session.ts";
 import { getTerminalAssistantSummary, shouldReapStableTerminalSummary } from "../agents/titles.ts";

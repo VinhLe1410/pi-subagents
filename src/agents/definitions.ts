@@ -20,10 +20,13 @@ export interface AgentDefaults {
 	cwdBase?: string;
 	path?: string;
 	body?: string;
+	/** @deprecated compatibility field; runtime ignores and launches in background. */
 	mode?: "interactive" | "background";
 	sessionMode?: "standalone" | "lineage-only" | "fork";
 	fork?: boolean;
+	/** @deprecated compatibility field; runtime ignores and waits for completion. */
 	async?: boolean;
+	/** @deprecated compatibility field; runtime ignores and waits for completion. */
 	blocking?: boolean;
 	noContextFiles?: boolean;
 	noSession?: boolean;

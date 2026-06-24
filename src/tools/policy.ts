@@ -1,8 +1,6 @@
 import type { AgentDefaults } from "../agents/definitions.ts";
-import { isSetTabTitleToolEnabled } from "../agents/titles.ts";
 import {
 	CALLER_PING_TOOL_NAME,
-	SET_TAB_TITLE_TOOL_NAME,
 	SPAWNING_TOOL_NAMES,
 	SUBAGENT_DONE_TOOL_NAME,
 } from "./tool-names.ts";
@@ -26,7 +24,6 @@ const KNOWN_TOOL_NAMES = new Set<string>([
 	...BUILTIN_TOOL_NAMES,
 	CALLER_PING_TOOL_NAME,
 	SUBAGENT_DONE_TOOL_NAME,
-	SET_TAB_TITLE_TOOL_NAME,
 ]);
 
 /**
@@ -171,12 +168,6 @@ function getChildProtocolToolNames(deniedTools: Set<string>): string[] {
 	if (!deniedTools.has(SUBAGENT_DONE_TOOL_NAME)) {
 		protocolTools.push(SUBAGENT_DONE_TOOL_NAME);
 	}
-	if (
-		isSetTabTitleToolEnabled() &&
-		!deniedTools.has(SET_TAB_TITLE_TOOL_NAME)
-	) {
-		protocolTools.push(SET_TAB_TITLE_TOOL_NAME);
-	}
 	return protocolTools;
 }
 
@@ -185,9 +176,7 @@ export function getSubagentToolAllowlist(
 	deniedTools = new Set<string>(),
 ): string[] {
 	if (normalizeToolMode(tools) !== "list" || !tools) return [];
-	const allowlist = parseToolNames(tools).filter(
-		(tool) => tool !== SET_TAB_TITLE_TOOL_NAME || isSetTabTitleToolEnabled(),
-	);
+	const allowlist = parseToolNames(tools);
 	allowlist.push(...getChildProtocolToolNames(deniedTools));
 	return [...new Set(allowlist)];
 }

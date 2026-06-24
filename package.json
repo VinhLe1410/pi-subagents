@@ -1,7 +1,7 @@
 {
   "name": "pi-subagents",
   "version": "2.5.1",
-  "description": "Serious subagent runtime for pi with interactive and background child agents",
+  "description": "Serious subagent runtime for pi with background child agents",
   "keywords": [
     "pi-package"
   ],
@@ -13,16 +13,7 @@
   },
   "type": "module",
   "scripts": {
-    "test": "node --test test/test.ts test/system-prompt-mode.test.ts test/runtime/widget.test.ts test/mux/cmux.test.ts test/live-test-guard.test.ts",
-    "test:e2e-live-blocking": "node scripts/test-e2e-live-blocking.mjs",
-    "test:e2e-live-mix-blocking": "node scripts/test-e2e-live-mix-blocking.mjs",
-    "test:e2e-live-deny-tools": "node scripts/test-e2e-live-deny-tools.mjs",
-    "test:e2e-live-tools": "node scripts/test-e2e-live-tools.mjs",
-    "test:e2e-live-extensions": "node scripts/test-e2e-live-extensions.mjs",
-    "test:e2e-live-stop-after-turn": "node scripts/test-e2e-live-stop-after-turn.mjs",
-    "test:e2e-live-mixed-batch": "node scripts/test-e2e-live-mixed-batch.mjs",
-    "test:live-herdr-mux": "node scripts/test-live-herdr-mux.mjs",
-    "test:live-herdr-pi": "node scripts/test-live-herdr-pi.mjs"
+    "test": "bun test ./test/test.ts test/system-prompt-mode.test.ts test/runtime/widget.test.ts"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=0.79.0",
@@ -39,18 +30,6 @@
   "pi": {
     "extensions": [
       "./src/index.ts"
-    ]
-  },
-  "knip": {
-    "ignoreBinaries": [
-      "cmux",
-      "ghostty",
-      "herdr",
-      "pkill",
-      "tmux",
-      "where.exe",
-      "wezterm",
-      "zellij"
     ]
   },
   "trustedDependencies": [

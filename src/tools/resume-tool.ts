@@ -7,11 +7,6 @@ import {
 	resumeSubagentSession,
 	type ResumeServiceRuntime,
 } from "../runtime/resume-service.ts";
-import {
-	requestSubagentBatchStop,
-	getSubagentBatchStopMetadata,
-} from "../runtime/state.ts";
-import { shouldAwaitSubagentLaunch } from "../runtime/running-registry.ts";
 import { SUBAGENT_RESUME_TOOL_NAME } from "./tool-names.ts";
 import {
 	formatTaskPreview,
@@ -46,9 +41,8 @@ export function registerSubagentResumeTool(
 			"\n" +
 			"Provide sessionFile from the earlier subagent output. If you include task, it is sent as the next instruction in that resumed session.\n" +
 			"\n" +
-			"The resumed helper may run in a visible terminal or hidden process depending on saved metadata or the mode argument. The tool usually returns after starting it; the helper's final report appears later in this chat when it finishes. Do not invent or assume resumed-session results before that later message appears. " +
-			"Leave model/thinking unset unless the user named concrete values for this resume. Do not infer them from quality, depth, urgency, safety, or cost language. " +
-			"The result arrives automatically as a steer message. Do not poll for it.",
+			"The resumed helper runs as a hidden background process and this tool waits until it finishes. Do not invent or assume resumed-session results before the tool returns. " +
+			"Leave model/thinking unset unless the user named concrete values for this resume. Do not infer them from quality, depth, urgency, safety, or cost language.",
 		parameters: Type.Object({
 			sessionFile: Type.String({
 				description: "Path to the session .jsonl file to resume",
@@ -95,7 +89,7 @@ export function registerSubagentResumeTool(
 					],
 					{
 						description:
-							"Fallback resume mode used only when launch metadata cannot be inferred. Persisted metadata always wins when present; an explicit mode here cannot override it.",
+							"Deprecated compatibility field. Ignored; resumes always run in background and wait for completion.",
 					},
 				),
 			),
@@ -169,7 +163,6 @@ export function registerSubagentResumeTool(
 					task: params.task,
 					name: params.name,
 					agent: params.agent,
-					mode: params.mode as "interactive" | "background" | undefined,
 					model: params.model,
 					thinking: params.thinking,
 				},
@@ -182,29 +175,7 @@ export function registerSubagentResumeTool(
 				running.completionPromise!,
 			);
 
-			const shouldAwait = shouldAwaitSubagentLaunch(running);
-			if (shouldAwait) {
-				return runtime.getLaunchedSubagentResult(running, signal);
-			}
-
-			requestSubagentBatchStop();
-			return {
-				content: [
-					{
-						type: "text" as const,
-						text: `Session "${running.name}" resumed.`,
-					},
-				],
-				details: {
-					id: running.id,
-					name: running.name,
-					sessionFile: running.sessionFile,
-					status: "started" as const,
-					deliveryState: "detached" as const,
-					async: running.async,
-				},
-				...getSubagentBatchStopMetadata(),
-			};
+			return runtime.getLaunchedSubagentResult(running, signal);
 		},
 	});
 }
