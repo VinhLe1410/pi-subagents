@@ -72,17 +72,6 @@ function describeActivity(toolNames: string[], responseText?: string): string {
 	return preview || "thinking…";
 }
 
-function renderAgentBadge(
-	theme: WidgetThemeLike,
-	agent: RunningSubagent,
-): string {
-	const label = agent.agent ?? "subagent";
-	if (agent.deliveryState === "detached") {
-		return theme.fg("muted", `[${label}]`);
-	}
-	return theme.fg("accent", `[${label}]`);
-}
-
 export class SubagentWidgetManager {
 	private latestCtx: ExtensionContext | null = null;
 	private widgetInterval: ReturnType<typeof setInterval> | null = null;
@@ -360,78 +349,19 @@ export class SubagentWidgetManager {
 		if (agents.length === 0) return [];
 
 		const width = tui?.terminal?.columns ?? getTerminalColumns();
-		const lines: string[] = [];
-
-		// Show running subagents section
-		if (agents.length > 0) {
-			const spinner = SPINNER[this.widgetFrame % SPINNER.length] ?? "●";
-			const oldestStartTime = Math.min(
-				...agents.map((agent) => agent.startTime),
-			);
-			lines.push(
-				theme.fg("accent", "●") +
-					" " +
-					theme.fg("accent", "Agents") +
-					theme.fg(
-						"dim",
-						` · ${agents.length} running · ${formatElapsedMs(oldestStartTime)}`,
-					),
+		const spinner = SPINNER[this.widgetFrame % SPINNER.length] ?? "●";
+		const oldestStartTime = Math.min(
+			...agents.map((agent) => agent.startTime),
+		);
+		const line =
+			theme.fg("accent", spinner) +
+			" " +
+			theme.fg(
+				"dim",
+				`SUBAGENTS · ${agents.length} running · ${formatElapsedMs(oldestStartTime)}`,
 			);
 
-			for (let i = 0; i < agents.length; i++) {
-				const agent = agents[i]!;
-				const isLast = i === agents.length - 1;
-				const connector = isLast ? "└─" : "├─";
-				const childConnector = isLast ? "   " : "│  ";
-				const stats: string[] = [];
-
-				const toolUses = agent.toolUses ?? 0;
-				if (toolUses > 0) {
-					stats.push(
-						`${toolUses} tool use${toolUses === 1 ? "" : "s"}`,
-					);
-				}
-				if (agent.contextLabel) {
-					stats.push(agent.contextLabel);
-				} else {
-					// No resolvable context window: show the last-message snapshot, not
-					// the cumulative totalTokens sum (which balloons past any window).
-					const snapshot = agent.contextTokens ?? 0;
-					if (snapshot > 0)
-						stats.push(`${formatCompactCount(snapshot)} tokens`);
-				}
-
-				const header =
-					theme.fg("dim", connector) +
-					` ${theme.fg("accent", spinner)} ${theme.bold(agent.name)} ${renderAgentBadge(theme, agent)}` +
-					(stats.length > 0
-						? ` ${theme.fg("dim", "·")} ${theme.fg("dim", stats.join(" · "))}`
-						: "");
-				lines.push(header);
-
-				const displayTitle =
-					agent.taskPreview ??
-					firstNonEmptyLine(agent.title ?? agent.task, 46);
-				if (displayTitle) {
-					const modelSuffix = agent.modelRef
-						? theme.fg("dim", ` · ${agent.modelRef}`)
-						: "";
-					lines.push(
-						theme.fg("dim", childConnector) +
-							theme.fg("muted", `  ${displayTitle}`) +
-							modelSuffix,
-					);
-				}
-
-				const activity = agent.activity ?? "starting…";
-				lines.push(
-					theme.fg("dim", childConnector) +
-					theme.fg("dim", `  ${activity}`),
-				);
-			}
-		}
-
-		return lines.map((line) => truncateToWidth(line, Math.max(1, width - 4)));
+		return [truncateToWidth(line, Math.max(1, width - 4))];
 	}
 
 	private renderWidgetNow(): void {

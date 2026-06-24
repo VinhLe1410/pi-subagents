@@ -16,7 +16,7 @@ describe("widget manager direct module tests", () => {
 		assert.deepEqual(widget.renderForTest(), []);
 	});
 
-	it("renders the updated agent summary layout", () => {
+	it("renders a compact running-only summary", () => {
 		const running: RunningSubagent = {
 			id: "child-1",
 			name: "Research",
@@ -36,17 +36,13 @@ describe("widget manager direct module tests", () => {
 		};
 
 		const widget = new SubagentWidgetManager(() => [running]);
-		const lines = widget.renderForTest(120).join("\n");
+		const lines = widget.renderForTest(120);
 
-		assert.match(lines, /^● Agents · 1 running · 1\.5s/m);
-		assert.match(lines, /^└─ ◜ Research \[researcher\]/m);
-		assert.doesNotMatch(lines, /└─ [-\\|/] Research \[researcher\]/);
-		assert.match(lines, /1 tool use/);
-		assert.doesNotMatch(lines, /3 messages/);
-		assert.match(lines, /Auth session review · zai-messages\/glm-5\.1:high/);
-		assert.doesNotMatch(lines, /return a concise report/);
-		assert.match(lines, /reading auth module/);
-		assert.doesNotMatch(lines, /\[detached\]/);
+		assert.equal(lines.length, 1);
+		assert.match(lines[0], /^◜ SUBAGENTS · 1 running · 1\.5s/);
+		assert.doesNotMatch(lines[0], /Research/);
+		assert.doesNotMatch(lines[0], /researcher/);
+		assert.doesNotMatch(lines[0], /reading auth module/);
 	});
 
 	it("renders widget lines without exceeding the terminal width", () => {
