@@ -89,6 +89,34 @@ export function withToolWarning(result: ToolResult, warningPrefix: string): Tool
 	});
 }
 
+function enrichChildDetail(
+	resultDetails: unknown,
+	child: SubagentParamsInput | undefined,
+): Record<string, unknown> {
+	const details = resultDetails as Record<string, unknown> | undefined;
+	return {
+		...(details ?? {}),
+		task: child?.task,
+		title: child?.title,
+		agent: child?.agent,
+		name: (details as { name?: string } | undefined)?.name ?? child?.name ?? "subagent",
+	};
+}
+
+function batchChildSnapshot(
+	resultDetails: unknown,
+	child: SubagentParamsInput | undefined,
+): Record<string, unknown> {
+	if (resultDetails) return enrichChildDetail(resultDetails, child);
+	return {
+		task: child?.task,
+		title: child?.title,
+		agent: child?.agent,
+		name: child?.name ?? "subagent",
+		status: "running",
+	};
+}
+
 function getLaunchError(params: SubagentParamsInput, agentDefs: AgentDefaults | null, currentAgent: string | undefined): string | null {
 	const nameError = getSubagentNameError(params.name);
 	if (nameError) return nameError;
@@ -227,7 +255,7 @@ export function registerSubagentCoreTools(
 			"\n" +
 			"After launch: use the returned findings; do not poll, sleep-read, or inspect session files unless debugging.\n",
 		parameters: SubagentParams,
-		execute: async (toolCallId, params, signal, _onUpdate, ctx) => {
+		execute: async (toolCallId, params, signal, onUpdate, ctx) => {
 			const children = getRequestedChildren(params as SubagentToolParams);
 			const currentAgent = process.env.PI_SUBAGENT_AGENT;
 			const prepared = children.map((child) => {
@@ -250,20 +278,31 @@ export function registerSubagentCoreTools(
 				return withToolWarning(result, warningPrefix);
 			}
 
-			const results = await Promise.all(launched.map((running) => runtime.getLaunchedSubagentResult(running, signal)));
+			const childDetails: (Record<string, unknown> | undefined)[] = new Array(launched.length).fill(undefined);
+			const emitBatchPartial = () => {
+				onUpdate?.({
+					content: [],
+					details: {
+						status: "batch_partial",
+						children: childDetails.map((detail, index) => batchChildSnapshot(detail, prepared[index]?.child)),
+					},
+				});
+			};
+			const results = await Promise.all(
+				launched.map(async (running, index) => {
+					const result = await runtime.getLaunchedSubagentResult(running, signal);
+					childDetails[index] = result.details as Record<string, unknown> | undefined;
+					emitBatchPartial();
+					return result;
+				}),
+			);
 			const texts = results.flatMap((result) => result.content).filter((block) => block.type === "text").map((block) => block.text);
 			const joined = texts.join("\n\n");
 			return asSubagentToolResult({
 				content: [{ type: "text", text: warningPrefix ? `${warningPrefix}\n\n${joined}` : joined }],
 				details: {
 					status: "batch",
-					children: results.map((result, index) => ({
-						...(result.details as Record<string, unknown>),
-						task: prepared[index]?.child.task,
-						title: prepared[index]?.child.title,
-						agent: prepared[index]?.child.agent,
-						name: (result.details as { name?: string } | undefined)?.name ?? prepared[index]?.child.name,
-					})),
+					children: results.map((result, index) => enrichChildDetail(result.details, prepared[index]?.child)),
 				},
 			});
 		},
